@@ -13,8 +13,8 @@ constexpr const char* s_add{"add"};
 
 constexpr const char* empty_json_list{"[]"};
 
-constexpr const char* VGIT_RD{".vgit"};
-constexpr const char* STAGE_D{".vgit/active_stage.json"};
+constexpr const char* ROOT_PATH{".vgit"};
+constexpr const char* STAGE_PATH{".vgit/active_stage.json"};
 constexpr __mode_t ROOT_PERMS{0777U};
 
 enum class ERROR { NOT_INITED, CANT_INIT, CANT_ACCESS, COUNT };
@@ -41,10 +41,10 @@ static constexpr std::array<std::string_view,
                      "File successfully added to staging area"};
 
 /* Checks if directory '.vgit' exists in CWD and is accessible */
-inline bool is_inited() { return std::filesystem::is_directory(VGIT_RD); }
+inline bool is_inited() { return std::filesystem::is_directory(ROOT_PATH); }
 
 /* Initializes an empty repository at this directory */
-int init() { return !is_inited() && !mkdir(VGIT_RD, ROOT_PERMS); }
+int init() { return !is_inited() && !mkdir(ROOT_PATH, ROOT_PERMS); }
 
 /* The finals are killers. One evil, one good.*/
 
@@ -58,31 +58,60 @@ void final(SUCCESS s) {
     exit(0);
 }
 
+/*---------------------------------------------------------------------------*/
+
+constexpr nlohmann::json get_staging() {
+    if (!std::filesystem::exists(STAGE_PATH)) {
+        std::ofstream out{STAGE_PATH};
+        out << empty_json_list;
+        out.close();
+    }
+
+    std::ifstream in(STAGE_PATH);
+    nlohmann::json loaded;
+    in >> loaded;
+    in.close();
+
+    return loaded;
+}
+
+void save_staging(const nlohmann::json& json) {
+    std::ofstream out(STAGE_PATH, std::ios::trunc);
+    out << json;
+    out.close();
+}
+
 int add(const char* filename) {
     std::fstream f{filename};
     if (!f.good()) return 0;
     f.close();
 
-    if (!std::filesystem::exists(STAGE_D)) {
-        std::ofstream out{STAGE_D};
-        out << empty_json_list;
-    }
+    auto json = get_staging();
 
-    std::ifstream in(STAGE_D);
-    nlohmann::json loaded;
-    in >> loaded;
-    in.close();
-
-    for (const auto item : loaded) {
+    // check if already added
+    for (const auto item : json) {
         if (!strcmp(item.get<std::string>().c_str(), filename)) return -1;
     }
 
-    // loaded.push_back(filename);
+    json.push_back(filename);
 
-    std::ofstream out(STAGE_D, std::ios::trunc);
-    out << loaded;
+    save_staging(json);
 
     return 1;
+}
+
+int rm(const char* filename) {
+    auto json = get_staging();
+
+    for (auto it = json.begin(); it != json.end(); ++it) {
+        if (!strcmp(it->get<std::string>().c_str(), filename)) {
+            json.erase(it);
+            save_staging(json);
+            return 1;
+        }
+    }
+
+    return -1;
 }
 
 auto add_resolver(int r) {
@@ -98,6 +127,8 @@ auto add_resolver(int r) {
     }
 }
 
+auto rm_resolver(int r) { throw(std::logic_error("not implemented")); }
+
 /*
 Hi. In the first variation, there will only be support for vgit:
 - add
@@ -108,12 +139,16 @@ Hi. In the first variation, there will only be support for vgit:
 int main(int argc, char* argv[]) {
     if (argc < 2) return 0;  // should print description
 
+    // case INIT
+
     if (!strcmp(argv[1], s_init)) {
         if (init())
             final(SUCCESS::INITED);
         else
             final(ERROR::CANT_INIT);
     }
+
+    // case ADD
 
     if (!is_inited()) {
         final(ERROR::NOT_INITED);
@@ -125,6 +160,8 @@ int main(int argc, char* argv[]) {
                       << std::endl;
 
         return 0;
+
+        // case OTHER
 
     } else {
         // should warn about unrecognized command
