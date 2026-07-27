@@ -7,6 +7,7 @@ namespace fs = std::filesystem;
 
 constexpr const char* s_init{"init"};
 constexpr const char* s_branch{"branch"};
+constexpr const char* s_switch{"switch"};
 constexpr const char* s_add{"add"};
 constexpr const char* s_rm{"rm"};
 constexpr const char* s_active_branch{"active_branch"};
@@ -34,7 +35,17 @@ enum class ERROR {
 
 enum class WARNING { NO_EFFECT, COUNT };
 
-enum class SUCCESS { INITED, STAGE_ADD, STAGE_RM, BRANCH, DELETE, COUNT };
+enum class SUCCESS {
+    INITED,
+    STAGE_ADD,
+    STAGE_RM,
+    BRANCH,
+    DELETE,
+    SWITCH,
+    COUNT
+};
+
+enum class INFO { VGIT, SWITCH, COUNT };
 
 static constexpr std::array<std::string_view, static_cast<size_t>(ERROR::COUNT)>
     ERROR_MESSAGES{
@@ -56,7 +67,13 @@ static constexpr std::array<std::string_view,
     SUCCESS_MESSAGES{"vgit empty repository successfully initialized.",
                      "File successfully added to staging area.",
                      "File successfully removed from staging area.",
-                     "Successfully created branch.", "Successfully deleted."};
+                     "Successfully created branch.",
+                     "Successfully deleted.",
+                     "Successfully switched."};
+
+static constexpr std::array<std::string_view, static_cast<size_t>(INFO::COUNT)>
+    INFO_MESSAGES{"vgit - barebones git",
+                  "Proper use: vgit switch <branch-name>"};
 
 /* The finals are killers. One evil, one good.*/
 
@@ -129,17 +146,14 @@ inline bool is_inited() { return fs::is_directory(ROOT_PATH); }
 bool has_branch() {
     auto json = get_info();
     auto it = json.find(s_active_branch);
-    if (it == json.end()) return false;
-    std::string alleged_branch{BRANCHES_PATH};
-    alleged_branch += *it;
-    return fs::is_directory(alleged_branch);
+    return it != json.end() && fs::is_directory(*it);
 }
 
 std::string get_branch() {
     auto json = get_info();
     auto it = json.find(s_active_branch);
     if (it == json.end()) return std::string{};
-    return *it;
+    return fs::path(*it).filename();
 }
 
 void set_branch(const std::string& name) {
@@ -193,12 +207,23 @@ int rm(const char* filename) {
     return -1;
 }
 
+// only displays active branches and current branch
+int branch() {
+    fs::directory_iterator dir{BRANCHES_PATH};
+    const auto active = get_branch();
+    for (const auto& br : dir) {
+        const auto bname = br.path().filename().generic_string();
+        std::cout << (active == bname ? "+ " + bname : bname) << std::endl;
+    }
+    return 0;
+}
+
 int branch(const char* name) {
     fs::path alleged_branch{BRANCHES_PATH};
     alleged_branch /= name;
     if (fs::is_directory(alleged_branch)) return 0;
     if (mkdir(alleged_branch.c_str(), ROOT_PERMS)) return 0;
-    set_branch(alleged_branch);
+    set_branch(name);
     return 1;
 };
 
@@ -206,9 +231,18 @@ int d_branch(const char* name) {
     fs::path alleged_branch{BRANCHES_PATH};
     alleged_branch /= name;
     if (!fs::is_directory(alleged_branch)) return 0;
-    if (!alleged_branch.filename().compare(name)) return -1;
+    if (!alleged_branch.filename().compare(get_branch())) return -1;
 
     return fs::remove_all(alleged_branch);
+}
+
+int v_switch(const char* name) {
+    fs::path alleged_branch{BRANCHES_PATH};
+    alleged_branch /= name;
+    if (!fs::is_directory(alleged_branch)) return 0;
+    if (name == get_branch()) return -1;
+    set_branch(name);
+    return 1;
 }
 
 // pushes a new commit to the commit stack
@@ -269,6 +303,21 @@ auto d_branch_resolver(int r) {
     }
 }
 
+auto switch_resolver(int r) {
+    // funny
+    switch (r) {
+        case 0:
+            return ERROR_MESSAGES[static_cast<size_t>(ERROR::CANT_ACCESS)];
+        case 1:
+            return SUCCESS_MESSAGES[static_cast<size_t>(SUCCESS::SWITCH)];
+        case -1:
+            return WARNING_MESSAGES[static_cast<size_t>(
+                WARNING::NO_EFFECT)];  // nothing changed
+        default:
+            return std::string_view{};
+    }
+}
+
 /*
 Hi. In the first variation, there will only be support for vgit:
 - add
@@ -303,10 +352,7 @@ int main(int argc, char* argv[]) {
     /* --------- BRANCH ---------*/
 
     if (!strcmp(argv[1], s_branch)) {
-        if (argc == 2) {
-            // display branches and current
-            return 0;
-        }
+        if (argc == 2) return branch();
 
         bool delete_mode = false;
 
@@ -324,6 +370,18 @@ int main(int argc, char* argv[]) {
                           << "': " << d_branch_resolver(d_branch(argv[i]))
                           << std::endl;
         }
+
+        return 0;
+    }
+
+    /* --------- SWITCH ---------*/
+    if (!strcmp(argv[1], s_switch)) {
+        if (argc > 2)
+            std::cout << argv[2] << ": " << switch_resolver(v_switch(argv[2]))
+                      << std::endl;
+        else
+            std::cout << INFO_MESSAGES[static_cast<size_t>(INFO::SWITCH)]
+                      << std::endl;
 
         return 0;
     }

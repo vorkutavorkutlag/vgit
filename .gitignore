@@ -1,4 +1,5 @@
 *.out
 *.txt
+CLI11.hpp
 .vgit/*
 .vgit
