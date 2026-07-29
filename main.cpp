@@ -7,6 +7,7 @@
 
 namespace fs = std::filesystem;
 
+namespace vconsts {
 constexpr const char* empty_json_list{"[]"};
 constexpr const char* empty_json_dict{"{}"};
 
@@ -17,6 +18,7 @@ const fs::path BRANCHES_PATH{ROOT_PATH / "branches"};
 const fs::path INFO_PATH{ROOT_PATH / "active_info.json"};
 const fs::path STAGE_PATH_P{"active_stage.json"};
 constexpr __mode_t ROOT_PERMS{0777U};
+}  // namespace vconsts
 
 enum class Status { Success, Warning, Error };
 
@@ -31,13 +33,13 @@ struct Result {
 }
 
 nlohmann::json get_active_info() {
-    if (!fs::exists(INFO_PATH)) {
-        std::ofstream out{INFO_PATH};
-        out << empty_json_dict;
+    if (!fs::exists(vconsts::INFO_PATH)) {
+        std::ofstream out{vconsts::INFO_PATH};
+        out << vconsts::empty_json_dict;
         out.close();
     }
 
-    std::ifstream in{INFO_PATH};
+    std::ifstream in{vconsts::INFO_PATH};
     nlohmann::json loaded;
     in >> loaded;
     in.close();
@@ -46,44 +48,47 @@ nlohmann::json get_active_info() {
 }
 
 void set_active_info(const nlohmann::json& json) {
-    std::ofstream out{INFO_PATH, std::ios::trunc};
+    std::ofstream out{vconsts::INFO_PATH, std::ios::trunc};
     out << json;
     out.close();
 }
 
 /* ------------------------------ */
-inline bool is_inited() { return fs::is_directory(ROOT_PATH); }
+inline bool is_inited() { return fs::is_directory(vconsts::ROOT_PATH); }
 
 std::string get_active_branch() {
     auto json = get_active_info();
-    auto it = json.find(s_active_branch);
+    auto it = json.find(vconsts::s_active_branch);
     if (it == json.end()) return std::string{};
     return fs::path(*it).filename();
 }
 
 Result set_active_branch(const std::string& b_name) {
-    if (!fs::is_directory(BRANCHES_PATH / b_name))
+    if (!fs::is_directory(vconsts::BRANCHES_PATH / b_name))
         return {Status::Error, "Branch does not exist."};
     auto json = get_active_info();
-    json[s_active_branch] = b_name;
+    json[vconsts::s_active_branch] = b_name;
     set_active_info(json);
     return {Status::Success, "Successfully switched branch."};
 }
 
-inline auto get_branches() { return fs::directory_iterator(BRANCHES_PATH); }
+inline auto get_branches() {
+    return fs::directory_iterator(vconsts::BRANCHES_PATH);
+}
 
 Result handle_init() {
-    if (!is_inited() && !mkdir(ROOT_PATH.c_str(), ROOT_PERMS) &&
-        !mkdir(BRANCHES_PATH.c_str(), ROOT_PERMS))
+    if (!is_inited() &&
+        !mkdir(vconsts::ROOT_PATH.c_str(), vconsts::ROOT_PERMS) &&
+        !mkdir(vconsts::BRANCHES_PATH.c_str(), vconsts::ROOT_PERMS))
         return {Status::Success, "Successfully initialized empty repository."};
     return {Status::Error, "Could not initialize new empty repository here."};
 }
 
 Result handle_branch(const std::string& b_name) {
-    fs::path would_be{BRANCHES_PATH / b_name};
+    fs::path would_be{vconsts::BRANCHES_PATH / b_name};
     if (fs::is_directory(would_be))
         return {Status::Error, "Branch by same name already exists."};
-    if (mkdir(would_be.c_str(), ROOT_PERMS))
+    if (mkdir(would_be.c_str(), vconsts::ROOT_PERMS))
         return {Status::Error, "Could not create new branch."};
     set_active_branch(b_name);
     return {Status::Success, "Created new branch & switched."};
@@ -117,8 +122,17 @@ Result handle_nuke() {
     std::getline(std::cin, input);
     if (input != "y" && input != "Y") return {Status::Success, "Aborted nuke."};
 
-    if (fs::remove_all(ROOT_PATH)) return {Status::Success, "BOOM!"};
+    if (fs::remove_all(vconsts::ROOT_PATH)) return {Status::Success, "BOOM!"};
     return {Status::Error, "Failed to remove the repository."};
+}
+
+Result handle_add(const std::vector<std::string>& files,
+                  const std::string& active_branch) {
+    static std::string result_message;
+    if (files.empty())
+        return {Status::Warning, "No files specified, nothing changed"};
+
+    return {Status::Success, result_message};
 }
 
 /* ------------------------------ */
@@ -160,6 +174,10 @@ int main(int argc, char* argv[]) {
 
     if (*swtch) finally(handle_switch(switch_name));
 
-    if (get_active_branch().empty())
+    const std::string active_branch{get_active_branch()};
+
+    if (active_branch.empty())
         finally({Status::Error, "Select branch before further action."});
+
+    if (*add) finally(handle_add(add_files, active_branch));
 }
