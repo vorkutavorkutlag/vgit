@@ -111,6 +111,14 @@ Result handle_branch() {
     return {Status::Success, all_branches};
 }
 
+Result handle_dbranch(const std::string& b_name) {
+    if (get_active_branch() == b_name)
+        return {Status::Error, "Switch to different branch before deleting."};
+    if (!fs::remove_all(vconsts::BRANCHES_PATH / b_name))
+        return {Status::Error, "Failed to remove the specified branch."};
+    return {Status::Success, "Branch successfully deleted."};
+}
+
 Result handle_switch(const std::string& b_name) {
     return set_active_branch(b_name);
 }
@@ -122,8 +130,9 @@ Result handle_nuke() {
     std::getline(std::cin, input);
     if (input != "y" && input != "Y") return {Status::Success, "Aborted nuke."};
 
-    if (fs::remove_all(vconsts::ROOT_PATH)) return {Status::Success, "BOOM!"};
-    return {Status::Error, "Failed to remove the repository."};
+    if (!fs::remove_all(vconsts::ROOT_PATH))
+        return {Status::Error, "Failed to remove the repository."};
+    return {Status::Success, "BOOM!"};
 }
 
 Result handle_add(const std::vector<std::string>& files,
@@ -143,8 +152,10 @@ int main(int argc, char* argv[]) {
     auto* init = app.add_subcommand("init", "Initialize repository");
 
     std::string branch_name;
+    bool delete_branch{false};
     auto* branch = app.add_subcommand("branch", "Manage branches");
     branch->add_option("name", branch_name, "Branch name");
+    branch->add_flag("-d,-D,--delete", delete_branch, "Delete a branch");
 
     std::string switch_name;
     auto* swtch = app.add_subcommand("switch", "Switch branch");
@@ -169,6 +180,7 @@ int main(int argc, char* argv[]) {
 
     if (*branch) {
         if (branch_name.empty()) finally(handle_branch());
+        if (delete_branch) finally(handle_dbranch(branch_name));
         finally(handle_branch(branch_name));
     }
 
