@@ -54,22 +54,13 @@ void set_active_info(const nlohmann::json& json) {
     out.close();
 }
 
-/* Assumes file exists */
-bool valid_file_scope(const fs::path& fpath) {
-    if (fpath.is_absolute()) {
-        // if it is not within CWD, return false
-        fs::path itpath{fpath};
-        while (itpath.has_parent_path()) {
-            itpath = itpath.parent_path();
-            // disallow adding .vgit files to vgit stage
-            if (itpath == vconsts::VGIT_ROOT) return false;
-            if (itpath == vconsts::CWD) return true;
-        }
-        return false;
-    }
+bool valid_file_scope(const fs::path& input) {
+    auto repo = fs::canonical(vconsts::CWD);
+    auto mismatch =
+        std::mismatch(repo.begin(), repo.end(), input.begin(), input.end());
 
-    // path is relative
-    return fpath.root_directory() != vconsts::VGIT_ROOT;
+    // could be cleaner
+    return mismatch.first == repo.end() && input != repo;
 }
 
 /* ------------------------------ */
@@ -163,20 +154,24 @@ Result handle_add(const std::vector<std::string>& files,
 
     for (const auto& file : files) {
         result_message.append(file).append(": ");
-        const fs::path fpath{file};
-        if (!fs::exists(fpath)) {
+        std::error_code ec;
+        fs::path fpath{fs::canonical(file, ec)};
+
+        if (ec) {
             result_message.append("File does not exist.\n");
             continue;
         }
 
-        if (!valid_file_scope(file)) {
+        if (!valid_file_scope(fpath)) {
             result_message.append("File is out of repository scope.\n");
             continue;
         }
 
+        const fs::path relative = fs::relative(fpath, vconsts::CWD);
         const fs::path destination = vconsts::BRANCHES_PATH / active_branch /
-                                     vconsts::STAGE_PATH_P /
-                                     fpath.relative_path();
+                                     vconsts::STAGE_PATH_P / relative;
+        // std::cout << "Hi my destination is " << destination << std::endl;
+
         fs::create_directories(destination.parent_path());
         fs::copy(
             fpath, destination,
