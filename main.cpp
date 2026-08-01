@@ -13,11 +13,12 @@ constexpr const char* empty_json_dict{"{}"};
 
 constexpr const char* s_active_branch{"active_branch"};
 
-const fs::path ROOT_PATH{".vgit"};
-const fs::path BRANCHES_PATH{ROOT_PATH / "branches"};
-const fs::path INFO_PATH{ROOT_PATH / "active_info.json"};
-const fs::path STAGE_PATH_P{"active_stage.json"};
-constexpr __mode_t ROOT_PERMS{0777U};
+const fs::path CWD{fs::current_path()};
+const fs::path VGIT_ROOT{CWD / ".vgit"};
+const fs::path BRANCHES_PATH{VGIT_ROOT / "branches"};
+const fs::path STAGE_PATH_P{"active_stage"};
+const fs::path INFO_PATH{VGIT_ROOT / "active_info.json"};
+constexpr __mode_t VGIT_PERMS{0777U};
 }  // namespace vconsts
 
 enum class Status { Success, Warning, Error };
@@ -53,8 +54,26 @@ void set_active_info(const nlohmann::json& json) {
     out.close();
 }
 
+/* Assumes file exists */
+bool valid_file_scope(const fs::path& fpath) {
+    if (fpath.is_absolute()) {
+        // if it is not within CWD, return false
+        fs::path itpath{fpath};
+        while (itpath.has_parent_path()) {
+            itpath = itpath.parent_path();
+            // disallow adding .vgit files to vgit stage
+            if (itpath == vconsts::VGIT_ROOT) return false;
+            if (itpath == vconsts::CWD) return true;
+        }
+        return false;
+    }
+
+    // path is relative
+    return fpath.root_directory() != vconsts::VGIT_ROOT;
+}
+
 /* ------------------------------ */
-inline bool is_inited() { return fs::is_directory(vconsts::ROOT_PATH); }
+inline bool is_inited() { return fs::is_directory(vconsts::VGIT_ROOT); }
 
 std::string get_active_branch() {
     auto json = get_active_info();
@@ -78,8 +97,8 @@ inline auto get_branches() {
 
 Result handle_init() {
     if (!is_inited() &&
-        !mkdir(vconsts::ROOT_PATH.c_str(), vconsts::ROOT_PERMS) &&
-        !mkdir(vconsts::BRANCHES_PATH.c_str(), vconsts::ROOT_PERMS))
+        !mkdir(vconsts::VGIT_ROOT.c_str(), vconsts::VGIT_PERMS) &&
+        !mkdir(vconsts::BRANCHES_PATH.c_str(), vconsts::VGIT_PERMS))
         return {Status::Success, "Successfully initialized empty repository."};
     return {Status::Error, "Could not initialize new empty repository here."};
 }
@@ -88,9 +107,10 @@ Result handle_branch(const std::string& b_name) {
     fs::path would_be{vconsts::BRANCHES_PATH / b_name};
     if (fs::is_directory(would_be))
         return {Status::Error, "Branch by same name already exists."};
-    if (mkdir(would_be.c_str(), vconsts::ROOT_PERMS))
+    if (mkdir(would_be.c_str(), vconsts::VGIT_PERMS))
         return {Status::Error, "Could not create new branch."};
     set_active_branch(b_name);
+    mkdir((would_be / vconsts::STAGE_PATH_P).c_str(), vconsts::VGIT_PERMS);
     return {Status::Success, "Created new branch & switched."};
 }
 
@@ -130,7 +150,7 @@ Result handle_nuke() {
     std::getline(std::cin, input);
     if (input != "y" && input != "Y") return {Status::Success, "Aborted nuke."};
 
-    if (!fs::remove_all(vconsts::ROOT_PATH))
+    if (!fs::remove_all(vconsts::VGIT_ROOT))
         return {Status::Error, "Failed to remove the repository."};
     return {Status::Success, "BOOM!"};
 }
@@ -140,6 +160,31 @@ Result handle_add(const std::vector<std::string>& files,
     static std::string result_message;
     if (files.empty())
         return {Status::Warning, "No files specified, nothing changed"};
+
+    for (const auto& file : files) {
+        result_message.append(file).append(": ");
+        const fs::path fpath{file};
+        if (!fs::exists(fpath)) {
+            result_message.append("File does not exist.\n");
+            continue;
+        }
+
+        if (!valid_file_scope(file)) {
+            result_message.append("File is out of repository scope.\n");
+            continue;
+        }
+
+        const fs::path destination = vconsts::BRANCHES_PATH / active_branch /
+                                     vconsts::STAGE_PATH_P /
+                                     fpath.relative_path();
+        fs::create_directories(destination.parent_path());
+        fs::copy(
+            fpath, destination,
+            fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        result_message.append("File successfully added to stage.\n");
+    }
+
+    result_message.pop_back();
 
     return {Status::Success, result_message};
 }
