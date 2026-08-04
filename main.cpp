@@ -63,6 +63,11 @@ bool valid_file_scope(const fs::path& input) {
     return mismatch.first == repo.end() && input != repo;
 }
 
+bool is_hidden(const std::filesystem::path& path) {
+    auto name = path.filename().string();
+    return !name.empty() && name[0] == '.';
+}
+
 /* ------------------------------ */
 inline bool is_inited() { return fs::is_directory(vconsts::VGIT_ROOT); }
 
@@ -147,16 +152,17 @@ Result handle_nuke() {
 }
 
 Result handle_add(const std::vector<std::string>& files,
-                  const std::string& active_branch) {
+                  const std::string& active_branch, const bool ow) {
     static std::string result_message;
+
     if (files.empty())
         return {Status::Warning, "No files specified, nothing changed"};
 
     for (const auto& file : files) {
-        result_message.append(file).append(": ");
         std::error_code ec;
         fs::path fpath{fs::canonical(file, ec)};
 
+        result_message.append(file).append(": ");
         if (ec) {
             result_message.append("File does not exist.\n");
             continue;
@@ -170,7 +176,12 @@ Result handle_add(const std::vector<std::string>& files,
         const fs::path relative = fs::relative(fpath, vconsts::CWD);
         const fs::path destination = vconsts::BRANCHES_PATH / active_branch /
                                      vconsts::STAGE_PATH_P / relative;
-        // std::cout << "Hi my destination is " << destination << std::endl;
+
+        if (fs::exists(destination) && !ow) {
+            result_message.append(
+                "File already exists on stage. Run with -f to overwrite.");
+            continue;
+        }
 
         fs::create_directories(destination.parent_path());
         fs::copy(
@@ -182,6 +193,40 @@ Result handle_add(const std::vector<std::string>& files,
     result_message.pop_back();
 
     return {Status::Success, result_message};
+}
+
+void rec_path(const fs::path& p, const std::string& buffer, std::string& cur) {
+    fs::directory_iterator dir_it{p};
+    for (const auto& file : dir_it) {
+        if (is_hidden(file)) continue;
+        cur.append(buffer).append("|");
+        cur.append(file.path().filename().generic_string()).append("\n");
+        if (file.is_directory()) {
+            cur.append(buffer).append("   \\\n");
+            rec_path(file.path(), buffer + "    ", cur);
+        }
+    }
+}
+
+/* Currently only runs on --name-only equivalent */
+Result handle_diff(const std::string& active_branch) {
+    static std::string result_message;
+    fs::path stage_path{vconsts::BRANCHES_PATH / active_branch /
+                        vconsts::STAGE_PATH_P};
+    rec_path(stage_path, "", result_message);
+    return {Status::Success, result_message};
+}
+
+/*  Keeps changes in directory, clears the stage.
+    Doesn't check whether files were actually removed, assumes no one is using
+    them and that we have perms there. */
+Result handle_reset(const std::string& active_branch) {
+    for (const auto& file : fs::directory_iterator{
+             vconsts::BRANCHES_PATH / active_branch / vconsts::STAGE_PATH_P}) {
+        fs::remove_all(file);
+    }
+
+    return {Status::Success, "Successfully cleared the stage."};
 }
 
 /* ------------------------------ */
@@ -201,9 +246,15 @@ int main(int argc, char* argv[]) {
     auto* swtch = app.add_subcommand("switch", "Switch branch");
     swtch->add_option("name", switch_name, "Branch name");
 
+    bool add_overwrite{false};
     std::vector<std::string> add_files;
     auto* add = app.add_subcommand("add", "Add files to stage");
     add->add_option("file", add_files, "File to add");
+    add->add_flag("-f,-F,--force", add_overwrite, "Overwrite files on stage");
+
+    auto* diff = app.add_subcommand("diff", "Show files on stage");
+
+    auto* reset = app.add_subcommand("reset", "Reset the stage");
 
     auto* nuke =
         app.add_subcommand("nuke", "Delete repository in working directory");
@@ -231,5 +282,11 @@ int main(int argc, char* argv[]) {
     if (active_branch.empty())
         finally({Status::Error, "Select branch before further action."});
 
-    if (*add) finally(handle_add(add_files, active_branch));
+    if (*add) finally(handle_add(add_files, active_branch, add_overwrite));
+
+    // only --name-only implemented
+    if (*diff) finally(handle_diff(active_branch));
+
+    // only default implemented
+    if (*reset) finally(handle_reset(active_branch));
 }
