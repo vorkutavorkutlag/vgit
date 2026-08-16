@@ -8,8 +8,11 @@
 namespace fs = std::filesystem;
 
 namespace vconsts {
+constexpr const size_t commit_hash_length{40uz};
+
 constexpr const char* empty_json_list{"[]"};
 constexpr const char* empty_json_dict{"{}"};
+constexpr const char* hex_digits{"0123456789abcdef"};
 
 constexpr const char* s_active_branch{"active_branch"};
 
@@ -17,9 +20,15 @@ const fs::path CWD{fs::current_path()};
 const fs::path VGIT_ROOT{CWD / ".vgit"};
 const fs::path BRANCHES_PATH{VGIT_ROOT / "branches"};
 const fs::path INFO_PATH{VGIT_ROOT / "active_info.json"};
-const fs::path STAGE_PATH_P{"active_stage"};  // partial
+const fs::path STAGE_PATH_P{"active_stage"};                  // partial
+const fs::path COMMIT_HISTORY_PATH_P{"commit_history.json"};  // partial
+const fs::path p_commit_message_path{".commit_message.txt"};
 constexpr __mode_t VGIT_PERMS{0777U};
 }  // namespace vconsts
+
+namespace vglobals {
+std::string active_branch;
+}
 
 enum class Status { Success, Warning, Error };
 
@@ -54,22 +63,82 @@ void set_active_info(const nlohmann::json& json) {
     out.close();
 }
 
+/* ------------------------------ */
+
+void ensure_history(const fs::path& p) {
+    if (!fs::exists(p)) {
+        std::ofstream out{p};
+        out << vconsts::empty_json_list;
+        out.close();
+    }
+}
+
+nlohmann::json get_commit_history() {
+    const auto history_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                            vconsts::COMMIT_HISTORY_PATH_P};
+
+    ensure_history(history_path);
+
+    std::ifstream in{history_path};
+    nlohmann::json loaded;
+    in >> loaded;
+    in.close();
+
+    return loaded;
+}
+
+void push_to_history(const std::string& commit_hash) {
+    const auto history_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                            vconsts::COMMIT_HISTORY_PATH_P};
+
+    ensure_history(history_path);
+
+    std::ifstream in{vconsts::COMMIT_HISTORY_PATH_P};
+    nlohmann::json loaded;
+    in >> loaded;
+    in.close();
+
+    loaded.push_back(commit_hash);
+};
+
+/* ------------------------------ */
+
 bool valid_file_scope(const fs::path& input) {
     auto repo = fs::canonical(vconsts::CWD);
     auto mismatch =
         std::mismatch(repo.begin(), repo.end(), input.begin(), input.end());
 
+    // is within CWD
     if (mismatch.first != repo.end() || input == repo) return false;
+
+    // is outside .vgit directory
     auto iter = input;
-    while (iter = iter.parent_path()) {
+    while (iter != (iter = iter.parent_path())) {
         if (iter == vconsts::VGIT_ROOT) return false;
         if (iter == vconsts::CWD) return true;
     }
+    // shouldn't ever reach this
+    return true;
 }
 
 bool is_hidden(const std::filesystem::path& path) {
     auto name = path.filename().string();
     return !name.empty() && name[0] == '.';
+}
+
+/* Generates vconsts::commit_hash_length digit random hex string*/
+std::string get_random_hash() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(0, 15);
+
+    std::string h(vconsts::commit_hash_length, '\0');
+
+    for (auto& c : h) {
+        c = vconsts::hex_digits[dist(gen)];
+    }
+
+    return h;
 }
 
 /* ------------------------------ */
@@ -155,18 +224,17 @@ Result handle_nuke() {
     return {Status::Success, "BOOM!"};
 }
 
-Result handle_add(const std::vector<std::string>& files,
-                  const std::string& active_branch, const bool ow) {
-    static std::string result_message{};
-
+Result handle_add(const std::vector<std::string>& files, const bool ow) {
     if (files.empty())
         return {Status::Warning, "No files specified, nothing changed"};
 
+    static std::string result_message{};
     for (const auto& file : files) {
+        result_message.append(file).append(": ");
+
         std::error_code ec;
         fs::path fpath{fs::canonical(file, ec)};
 
-        result_message.append(file).append(": ");
         if (ec) {
             result_message.append("File does not exist.\n");
             continue;
@@ -178,7 +246,8 @@ Result handle_add(const std::vector<std::string>& files,
         }
 
         const fs::path relative = fs::relative(fpath, vconsts::CWD);
-        const fs::path destination = vconsts::BRANCHES_PATH / active_branch /
+        const fs::path destination = vconsts::BRANCHES_PATH /
+                                     vglobals::active_branch /
                                      vconsts::STAGE_PATH_P / relative;
 
         if (fs::exists(destination) && !ow) {
@@ -199,13 +268,22 @@ Result handle_add(const std::vector<std::string>& files,
     return {Status::Success, result_message};
 }
 
-Result handle_remove(const std::vector<std::string>& files,
-                     const std::string& active_branch) {
-    static std::string result_message{};
+Result handle_remove(const std::vector<std::string>& files) {
+    if (files.empty())
+        return {Status::Warning, "No files specified, nothing changed"};
 
+    static std::string result_message{};
     for (const auto& file : files) {
         result_message.append(file).append(": ");
-        const auto can = fs::canonical(file);
+
+        std::error_code ec;
+        const auto can = fs::canonical(file, ec);
+
+        if (ec) {
+            result_message.append("File does not exist.\n");
+            continue;
+        }
+
         if (!valid_file_scope(can)) {
             result_message.append("File is out of repository scope.\n");
             continue;
@@ -213,7 +291,8 @@ Result handle_remove(const std::vector<std::string>& files,
 
         const auto rel = fs::relative(can, vconsts::CWD);
 
-        const auto would_be_file = vconsts::BRANCHES_PATH / active_branch /
+        const auto would_be_file = vconsts::BRANCHES_PATH /
+                                   vglobals::active_branch /
                                    vconsts::STAGE_PATH_P / rel;
         if (!fs::remove_all(would_be_file)) {
             result_message.append("File wasn't in stage, nothing changed.\n");
@@ -229,7 +308,7 @@ Result handle_remove(const std::vector<std::string>& files,
 void rec_path(const fs::path& p, const std::string& buffer, std::string& cur) {
     fs::directory_iterator dir_it{p};
     for (const auto& file : dir_it) {
-        if (is_hidden(file)) continue;
+        // if (is_hidden(file)) continue;
         cur.append(buffer).append("|");
         cur.append(file.path().filename().generic_string()).append("\n");
         if (file.is_directory()) {
@@ -240,24 +319,56 @@ void rec_path(const fs::path& p, const std::string& buffer, std::string& cur) {
 }
 
 /* Currently only runs on --name-only equivalent */
-Result handle_diff(const std::string& active_branch) {
+Result handle_diff() {
     static std::string result_message{};
-    fs::path stage_path{vconsts::BRANCHES_PATH / active_branch /
-                        vconsts::STAGE_PATH_P};
+    const auto stage_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                          vconsts::STAGE_PATH_P};
     rec_path(stage_path, "", result_message);
+    if (result_message.empty()) return {Status::Success, "Stage is empty."};
+    result_message.pop_back();
     return {Status::Success, result_message};
 }
 
 /*  Keeps changes in directory, clears the stage.
-    Doesn't check whether files were actually removed, assumes no one is using
-    them and that we have perms there. */
-Result handle_reset(const std::string& active_branch) {
-    for (const auto& file : fs::directory_iterator{
-             vconsts::BRANCHES_PATH / active_branch / vconsts::STAGE_PATH_P}) {
+    Doesn't check whether files were removed, assumes pperms and no lock */
+Result handle_reset() {
+    for (const auto& file : fs::directory_iterator{vconsts::BRANCHES_PATH /
+                                                   vglobals::active_branch /
+                                                   vconsts::STAGE_PATH_P}) {
         fs::remove_all(file);
     }
 
     return {Status::Success, "Successfully cleared the stage."};
+}
+
+Result handle_commit(const std::string& message) {
+    auto commit_hash = get_random_hash();
+
+    const auto stage_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                          vconsts::STAGE_PATH_P};
+    const auto commit_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                           commit_hash};
+
+    if (fs::is_empty(stage_path)) {
+        return {Status::Error, "No changes staged, nothing committed."};
+    }
+
+    // optional message for commit
+    if (!message.empty()) {
+        const auto message_path{stage_path / vconsts::p_commit_message_path};
+        std::ofstream ofs(message_path);
+        ofs << message << std::endl;
+        ofs.close();
+    }
+
+    fs::rename(stage_path, commit_path);
+
+    // re-create active stage environment
+    mkdir(stage_path.c_str(), vconsts::VGIT_PERMS);
+
+    push_to_history(commit_hash);
+
+    return {Status::Success, "Successfully committed the changes."};
 }
 
 /* ------------------------------ */
@@ -292,6 +403,11 @@ int main(int argc, char* argv[]) {
 
     auto* reset = app.add_subcommand("reset", "Reset the stage");
 
+    std::string message;
+    auto* commit =
+        app.add_subcommand("commit", "Commit current changes in stage");
+    commit->add_option("-m,--message", message, "Commit message");
+
     auto* nuke =
         app.add_subcommand("nuke", "Delete repository in working directory");
 
@@ -311,20 +427,22 @@ int main(int argc, char* argv[]) {
         finally(handle_branch(branch_name));
     }
 
+    vglobals::active_branch = get_active_branch();
+
+    if (vglobals::active_branch.empty())
+        finally({Status::Error, "Create branch before further action."});
+
     if (*swtch) finally(handle_switch(switch_name));
 
-    const std::string active_branch{get_active_branch()};
+    if (*add) finally(handle_add(add_files, add_overwrite));
 
-    if (active_branch.empty())
-        finally({Status::Error, "Select branch before further action."});
-
-    if (*add) finally(handle_add(add_files, active_branch, add_overwrite));
-
-    if (*remove) finally(handle_remove(rm_files, active_branch));
+    if (*remove) finally(handle_remove(rm_files));
 
     // only --name-only implemented
-    if (*diff) finally(handle_diff(active_branch));
+    if (*diff) finally(handle_diff());
 
     // only default implemented
-    if (*reset) finally(handle_reset(active_branch));
+    if (*reset) finally(handle_reset());
+
+    if (*commit) finally(handle_commit(message));
 }
