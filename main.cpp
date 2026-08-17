@@ -15,20 +15,22 @@ constexpr const char* empty_json_dict{"{}"};
 constexpr const char* hex_digits{"0123456789abcdef"};
 
 constexpr const char* s_active_branch{"active_branch"};
+constexpr const char* s_head_hash{"head_hash"};
 
 const fs::path CWD{fs::current_path()};
 const fs::path VGIT_ROOT{CWD / ".vgit"};
 const fs::path BRANCHES_PATH{VGIT_ROOT / "branches"};
-const fs::path INFO_PATH{VGIT_ROOT / "active_info.json"};
+const fs::path GLOBAL_INFO_PATH{VGIT_ROOT / "global_info.json"};
 const fs::path STAGE_PATH_P{"active_stage"};                  // partial
 const fs::path COMMIT_HISTORY_PATH_P{"commit_history.json"};  // partial
+const fs::path BRANCH_INFO_PATH{"branch_info.json"};          // partial
 const fs::path p_commit_message_path{".commit_message.txt"};
 constexpr __mode_t VGIT_PERMS{0777U};
 }  // namespace vconsts
 
 namespace vglobals {
 std::string active_branch;
-}
+}  // namespace vglobals
 
 enum class Status { Success, Warning, Error };
 
@@ -42,14 +44,14 @@ struct Result {
     exit(static_cast<int>(res.status));
 }
 
-nlohmann::json get_active_info() {
-    if (!fs::exists(vconsts::INFO_PATH)) {
-        std::ofstream out{vconsts::INFO_PATH};
+nlohmann::json get_global_info() {
+    if (!fs::exists(vconsts::GLOBAL_INFO_PATH)) {
+        std::ofstream out{vconsts::GLOBAL_INFO_PATH};
         out << vconsts::empty_json_dict;
         out.close();
     }
 
-    std::ifstream in{vconsts::INFO_PATH};
+    std::ifstream in{vconsts::GLOBAL_INFO_PATH};
     nlohmann::json loaded;
     in >> loaded;
     in.close();
@@ -57,10 +59,51 @@ nlohmann::json get_active_info() {
     return loaded;
 }
 
-void set_active_info(const nlohmann::json& json) {
-    std::ofstream out{vconsts::INFO_PATH, std::ios::trunc};
+void set_global_info(const nlohmann::json& json) {
+    std::ofstream out{vconsts::GLOBAL_INFO_PATH, std::ios::trunc};
     out << json;
     out.close();
+}
+
+/* ------------------------------ */
+
+nlohmann::json get_branch_info() {
+    const auto b_info_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                           vconsts::BRANCH_INFO_PATH};
+
+    if (!fs::exists(b_info_path)) {
+        std::ofstream out{b_info_path};
+        out << vconsts::empty_json_dict;
+        out.close();
+    }
+
+    std::ifstream in{b_info_path};
+    nlohmann::json loaded;
+    in >> loaded;
+    in.close();
+
+    return loaded;
+}
+
+void set_branch_info(const nlohmann::json& json) {
+    const auto b_info_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                           vconsts::BRANCH_INFO_PATH};
+    std::ofstream out{b_info_path, std::ios::trunc};
+    out << json;
+    out.close();
+}
+
+void set_head(const std::string& commit_hash) {
+    auto json = get_branch_info();
+    json[vconsts::s_head_hash] = commit_hash;
+    set_branch_info(json);
+};
+
+std::string get_head() {
+    const auto json = get_branch_info();
+    const auto it = json.find(vconsts::s_head_hash);
+    if (it == json.end()) return std::string{};
+    return *it;
 }
 
 /* ------------------------------ */
@@ -93,12 +136,22 @@ void push_to_history(const std::string& commit_hash) {
 
     ensure_history(history_path);
 
-    std::ifstream in{vconsts::COMMIT_HISTORY_PATH_P};
+    std::ifstream in{history_path};
     nlohmann::json loaded;
     in >> loaded;
     in.close();
 
+    const auto head_it = loaded.find(get_head());
+    if (head_it != loaded.end()) {
+        // head is present, pushing, overwrite the "future"
+        loaded.erase(std::next(head_it), loaded.end());
+    }
+
     loaded.push_back(commit_hash);
+
+    std::ofstream out{history_path, std::ios::trunc};
+    out << loaded;
+    out.close();
 };
 
 /* ------------------------------ */
@@ -145,7 +198,7 @@ std::string get_random_hash() {
 inline bool is_inited() { return fs::is_directory(vconsts::VGIT_ROOT); }
 
 std::string get_active_branch() {
-    auto json = get_active_info();
+    auto json = get_global_info();
     auto it = json.find(vconsts::s_active_branch);
     if (it == json.end()) return std::string{};
     return fs::path(*it).filename();
@@ -154,9 +207,9 @@ std::string get_active_branch() {
 Result set_active_branch(const std::string& b_name) {
     if (!fs::is_directory(vconsts::BRANCHES_PATH / b_name))
         return {Status::Error, "Branch does not exist."};
-    auto json = get_active_info();
+    auto json = get_global_info();
     json[vconsts::s_active_branch] = b_name;
-    set_active_info(json);
+    set_global_info(json);
     return {Status::Success, "Successfully switched branch."};
 }
 
@@ -368,7 +421,22 @@ Result handle_commit(const std::string& message) {
 
     push_to_history(commit_hash);
 
+    set_head(commit_hash);
+
     return {Status::Success, "Successfully committed the changes."};
+}
+
+Result handle_history() {
+    static std::string result_message;
+    result_message.append("History of branch: ")
+        .append(vglobals::active_branch)
+        .append("\n");
+    const auto json = get_branch_info();
+    const auto head_hash = get_head();
+    for (const auto& commit : json) {
+        result_message.append("commit ").append(commit).append("\n");
+        throw(std::logic_error("Unimplemented"));
+    }
 }
 
 /* ------------------------------ */
@@ -408,6 +476,9 @@ int main(int argc, char* argv[]) {
         app.add_subcommand("commit", "Commit current changes in stage");
     commit->add_option("-m,--message", message, "Commit message");
 
+    auto* history =
+        app.add_subcommand("history", "View commit history in branch");
+
     auto* nuke =
         app.add_subcommand("nuke", "Delete repository in working directory");
 
@@ -445,4 +516,6 @@ int main(int argc, char* argv[]) {
     if (*reset) finally(handle_reset());
 
     if (*commit) finally(handle_commit(message));
+
+    if (*history) finally(handle_history());
 }
