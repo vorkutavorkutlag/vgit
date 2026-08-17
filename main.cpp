@@ -426,17 +426,47 @@ Result handle_commit(const std::string& message) {
     return {Status::Success, "Successfully committed the changes."};
 }
 
+std::string get_commit_message(const std::string& commit_hash) {
+    const auto commit_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
+                           commit_hash};
+    const auto message_path{commit_path / vconsts::p_commit_message_path};
+    if (!fs::is_directory(commit_path)) return std::string{};
+    if (!fs::is_regular_file(message_path)) return std::string{};
+
+    std::ifstream t{message_path};
+    std::string message{(std::istreambuf_iterator<char>(t)),
+                        std::istreambuf_iterator<char>()};
+
+    return message;
+}
+
 Result handle_history() {
     static std::string result_message;
     result_message.append("History of branch: ")
         .append(vglobals::active_branch)
         .append("\n");
-    const auto json = get_branch_info();
+    const auto json = get_commit_history();
     const auto head_hash = get_head();
     for (const auto& commit : json) {
+        // commit hash
         result_message.append("commit ").append(commit).append("\n");
-        throw(std::logic_error("Unimplemented"));
+
+        // commit message
+        const auto message = get_commit_message(commit);
+        if (!message.empty())
+            result_message.append("message: ").append(message);
+
+        // files
+        result_message.append("Files present:\n");
+        rec_path(vconsts::BRANCHES_PATH / vglobals::active_branch / commit, "",
+                 result_message);
+
+        result_message.append("\n\n");
     }
+
+    result_message.erase(result_message.length() - 2);
+
+    return {Status::Success, result_message};
 }
 
 /* ------------------------------ */
