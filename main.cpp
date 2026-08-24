@@ -154,6 +154,18 @@ void push_to_history(const std::string& commit_hash) {
     out.close();
 };
 
+// copies over / overwrites history of dst_branch with history of src_branch
+void copy_branch(const std::string& src_branch, const std::string& dst_branch) {
+    const auto src_history{vconsts::BRANCHES_PATH / src_branch};
+    const auto dst_history{vconsts::BRANCHES_PATH / dst_branch};
+
+    assert(fs::is_directory(src_history));
+
+    fs::copy(
+        src_history, dst_history,
+        fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+}
+
 /* ------------------------------ */
 
 bool valid_file_scope(const fs::path& input) {
@@ -227,12 +239,20 @@ Result handle_init() {
 
 Result handle_branch(const std::string& b_name) {
     fs::path would_be{vconsts::BRANCHES_PATH / b_name};
+
     if (fs::is_directory(would_be))
         return {Status::Error, "Branch by same name already exists."};
     if (mkdir(would_be.c_str(), vconsts::VGIT_PERMS))
         return {Status::Error, "Could not create new branch."};
-    set_active_branch(b_name);
+
     mkdir((would_be / vconsts::STAGE_PATH_P).c_str(), vconsts::VGIT_PERMS);
+
+    const auto active_branch{get_active_branch()};
+    if (!active_branch.empty()) {
+        copy_branch(active_branch, b_name);
+    }
+
+    set_active_branch(b_name);
     return {Status::Success, "Created new branch & switched."};
 }
 
@@ -441,12 +461,18 @@ std::string get_commit_message(const std::string& commit_hash) {
 }
 
 Result handle_history() {
+    const auto json = get_commit_history();
+    const auto head_hash = get_head();
+
+    if (json.empty()) {
+        return {Status::Success, "No history on current branch."};
+    }
+
     static std::string result_message;
     result_message.append("History of branch: ")
         .append(vglobals::active_branch)
         .append("\n");
-    const auto json = get_commit_history();
-    const auto head_hash = get_head();
+
     for (const auto& commit : json) {
         // commit hash
         result_message.append("commit ").append(commit).append("\n");
