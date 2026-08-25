@@ -191,6 +191,28 @@ bool is_hidden(const std::filesystem::path& path) {
     return !name.empty() && name[0] == '.';
 }
 
+/*  pretty spaghetti, im ashamed of this, must be a better way.
+    makes commit file paths relative to their respective branch */
+fs::path isolate_commit_path(const fs::path& fp) {
+    fs::path f_iter = fp;
+    fs::path prev_f_iter{};
+    for (;; f_iter = f_iter.parent_path()) {
+        if (f_iter.filename().compare(vglobals::active_branch))
+            prev_f_iter = f_iter;
+        else
+            return fs::relative(fp, prev_f_iter);
+    }
+}
+
+/* accepted files are only non-directory files. */
+void commit_create_symlink(const fs::path& commit_path,
+                           const fs::path& og_file) {
+    const auto canon{fs::canonical(og_file)};
+    const auto isolated{commit_path / isolate_commit_path(canon)};
+    fs::create_directories(isolated.parent_path());
+    fs::create_symlink(canon, isolated);
+}
+
 /* Generates vconsts::commit_hash_length digit random hex string*/
 std::string get_random_hash() {
     std::random_device rd;
@@ -436,12 +458,41 @@ Result handle_commit(const std::string& message) {
 
     fs::rename(stage_path, commit_path);
 
-    // re-create active stage environment
-    mkdir(stage_path.c_str(), vconsts::VGIT_PERMS);
+    const auto head_hash = get_head();
+    const auto prev_commit_path{vconsts::BRANCHES_PATH /
+                                vglobals::active_branch / head_hash};
+
+    /*symlinks for previous commit's files. old_commit without new_commit */
+    if (fs::is_directory(prev_commit_path) && !head_hash.empty()) {
+        // current commit's files
+        const std::set<fs::path> fset(
+            std::from_range, fs::recursive_directory_iterator{commit_path} |
+                                 std::views::filter([](const auto& file) {
+                                     return !fs::is_directory(file);
+                                 }) |
+                                 std::views::transform([](const auto& file) {
+                                     return file.path();
+                                 }));
+
+        // previous commit's files wo current ones
+        // inductively, should contain symlinks to previous commit (if exists)
+
+        std::ranges::for_each(
+            fs::recursive_directory_iterator{prev_commit_path} |
+                std::views::filter([&](const auto& file) {
+                    return !fs::is_directory(file) && !fset.contains(file);
+                }),
+            [&](const auto& file) {
+                commit_create_symlink(commit_path, file);
+            });
+    }
 
     push_to_history(commit_hash);
 
     set_head(commit_hash);
+
+    // re-create active stage environment
+    mkdir(stage_path.c_str(), vconsts::VGIT_PERMS);
 
     return {Status::Success, "Successfully committed the changes."};
 }
@@ -575,3 +626,12 @@ int main(int argc, char* argv[]) {
 
     if (*history) finally(handle_history());
 }
+
+/*
+This is a reminder for myself in the future.
+Forget about branching for now.
+Implement proper committing.
+With remnants of previous commits in the current commit
+(for when you roll back, there will be a ready working directory)
+With symlinks instead of hard copies.
+*/
