@@ -468,7 +468,8 @@ Result handle_commit(const std::string& message) {
         const std::set<fs::path> fset(
             std::from_range, fs::recursive_directory_iterator{commit_path} |
                                  std::views::filter([](const auto& file) {
-                                     return !fs::is_directory(file);
+                                     return !fs::is_directory(file) &&
+                                            !is_hidden(file);
                                  }) |
                                  std::views::transform([](const auto& file) {
                                      return file.path();
@@ -480,7 +481,8 @@ Result handle_commit(const std::string& message) {
         std::ranges::for_each(
             fs::recursive_directory_iterator{prev_commit_path} |
                 std::views::filter([&](const auto& file) {
-                    return !fs::is_directory(file) && !fset.contains(file);
+                    return !fs::is_directory(file) && !is_hidden(file) &&
+                           !fset.contains(file);
                 }),
             [&](const auto& file) {
                 commit_create_symlink(commit_path, file);
