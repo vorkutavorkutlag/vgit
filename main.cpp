@@ -108,7 +108,7 @@ std::string get_head() {
 
 /* ------------------------------ */
 
-void ensure_history(const fs::path& p) {
+void ensure_json_list(const fs::path& p) {
     if (!fs::exists(p)) {
         std::ofstream out{p};
         out << vconsts::empty_json_list;
@@ -120,7 +120,7 @@ nlohmann::json get_commit_history() {
     const auto history_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
                             vconsts::COMMIT_HISTORY_PATH_P};
 
-    ensure_history(history_path);
+    ensure_json_list(history_path);
 
     std::ifstream in{history_path};
     nlohmann::json loaded;
@@ -134,7 +134,7 @@ void push_to_history(const std::string& commit_hash) {
     const auto history_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
                             vconsts::COMMIT_HISTORY_PATH_P};
 
-    ensure_history(history_path);
+    ensure_json_list(history_path);
 
     std::ifstream in{history_path};
     nlohmann::json loaded;
@@ -211,6 +211,20 @@ void commit_create_symlink(const fs::path& commit_path,
     const auto isolated{commit_path / isolate_commit_path(canon)};
     fs::create_directories(isolated.parent_path());
     fs::create_symlink(canon, isolated);
+}
+
+/* assumes valid commit path */
+void rollback_to_commit(const fs::path& commit_path) {
+    const fs::directory_iterator dir_it{commit_path};
+
+    for (const auto& file : dir_it) {
+        const auto isolated_fname =
+            fs::relative(fs::canonical(file), commit_path);
+        const auto destination_fname = vconsts::CWD / isolated_fname;
+        fs::copy(
+            file, destination_fname,
+            fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+    }
 }
 
 /* Generates vconsts::commit_hash_length digit random hex string*/
@@ -465,7 +479,7 @@ Result handle_commit(const std::string& message) {
     /*symlinks for previous commit's files. old_commit without new_commit */
     if (fs::is_directory(prev_commit_path) && !head_hash.empty()) {
         // current commit's files
-        const std::set<fs::path> fset(
+        const std::set<fs::path> fset{
             std::from_range, fs::recursive_directory_iterator{commit_path} |
                                  std::views::filter([](const auto& file) {
                                      return !fs::is_directory(file) &&
@@ -473,7 +487,7 @@ Result handle_commit(const std::string& message) {
                                  }) |
                                  std::views::transform([](const auto& file) {
                                      return file.path();
-                                 }));
+                                 })};
 
         // previous commit's files wo current ones
         // inductively, should contain symlinks to previous commit (if exists)
@@ -548,10 +562,62 @@ Result handle_history() {
     return {Status::Success, result_message};
 }
 
+Result handle_rollback(const std::string& commit_hash) {
+    const fs::directory_iterator dir_it{vconsts::BRANCHES_PATH /
+                                        vglobals::active_branch};
+
+    const auto commit_history = get_commit_history();
+
+    if (commit_history.empty())
+        return {Status::Error, "No commits to roll back to."};
+
+    if (commit_hash.length() >= vconsts::commit_hash_length) {
+        return {Status::Error, "Abnormal commit hash length."};
+    }
+
+    if (commit_hash.empty()) {
+        rollback_to_commit(vconsts::BRANCHES_PATH / vglobals::active_branch /
+                           commit_history.back());
+
+        static std::string result_message{
+            "Rolled back to most recent commit: "};
+        result_message.append(commit_history.back());
+        return {Status::Success, result_message};
+    }
+
+    fs::path closest_commit{dir_it->path()};  // first item
+    size_t closest_match{0uz};
+
+    for (const auto& file : dir_it) {
+        auto fstring{file.path().generic_string()};
+        auto mismatch = std::mismatch(fstring.begin(), fstring.end(),
+                                      commit_hash.begin(), commit_hash.end());
+        size_t gap = mismatch.first - fstring.begin();
+
+        if (gap == closest_match) {
+            return {Status::Error,
+                    "Couldn't roll back: ambiguous commit hash."};
+        }
+
+        if (gap > closest_match) {
+            closest_match = gap;
+            closest_commit = file.path();
+        }
+    }
+
+    rollback_to_commit(closest_commit);
+
+    static std::string result_message{"Rolled back to commit: "};
+    result_message.append(closest_commit);
+    return {Status::Success, result_message};
+}
+
 /* ------------------------------ */
 
 int main(int argc, char* argv[]) {
-    CLI::App app{"vgit - the barebones local git"};
+    CLI::App app{
+        "vgit - the barebones local git\nQuick guide:\nvgit init\nvgit branch "
+        "main\nvgit add *\nvgit commit -m 'first commit'"};
 
     auto* init = app.add_subcommand("init", "Initialize repository");
 
@@ -587,6 +653,12 @@ int main(int argc, char* argv[]) {
 
     auto* history =
         app.add_subcommand("history", "View commit history in branch");
+
+    std::string rollback_hash;
+    auto* rollback =
+        app.add_subcommand("rollback", "Roll bacck to previous commit");
+    rollback->add_option("hash", rollback_hash,
+                         "First few letters of desired commit hash");
 
     auto* nuke =
         app.add_subcommand("nuke", "Delete repository in working directory");
@@ -627,13 +699,6 @@ int main(int argc, char* argv[]) {
     if (*commit) finally(handle_commit(message));
 
     if (*history) finally(handle_history());
-}
 
-/*
-This is a reminder for myself in the future.
-Forget about branching for now.
-Implement proper committing.
-With remnants of previous commits in the current commit
-(for when you roll back, there will be a ready working directory)
-With symlinks instead of hard copies.
-*/
+    if (*rollback) finally(handle_rollback(rollback_hash));
+}
