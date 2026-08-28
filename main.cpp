@@ -225,6 +225,9 @@ void rollback_to_commit(const fs::path& commit_path) {
             file, destination_fname,
             fs::copy_options::recursive | fs::copy_options::overwrite_existing);
     }
+
+    // reset head
+    set_head(commit_path.filename());
 }
 
 /* Generates vconsts::commit_hash_length digit random hex string*/
@@ -480,14 +483,14 @@ Result handle_commit(const std::string& message) {
     if (fs::is_directory(prev_commit_path) && !head_hash.empty()) {
         // current commit's files
         const std::set<fs::path> fset{
-            std::from_range, fs::recursive_directory_iterator{commit_path} |
-                                 std::views::filter([](const auto& file) {
-                                     return !fs::is_directory(file) &&
-                                            !is_hidden(file);
-                                 }) |
-                                 std::views::transform([](const auto& file) {
-                                     return file.path();
-                                 })};
+            std::from_range,
+            fs::recursive_directory_iterator{commit_path} |
+                std::views::filter([](const auto& file) {
+                    return !fs::is_directory(file) && !is_hidden(file);
+                }) |
+                std::views::transform([&](const auto& file) {
+                    return fs::relative(file.path(), commit_path);
+                })};
 
         // previous commit's files wo current ones
         // inductively, should contain symlinks to previous commit (if exists)
@@ -496,7 +499,7 @@ Result handle_commit(const std::string& message) {
             fs::recursive_directory_iterator{prev_commit_path} |
                 std::views::filter([&](const auto& file) {
                     return !fs::is_directory(file) && !is_hidden(file) &&
-                           !fset.contains(file);
+                           !fset.contains(fs::relative(file, prev_commit_path));
                 }),
             [&](const auto& file) {
                 commit_create_symlink(commit_path, file);
