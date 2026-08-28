@@ -132,7 +132,7 @@ nlohmann::json get_commit_history() {
 
 /* removes commit from repository, doesn't check for future symlinks. */
 void remove_commit_unsafe(const std::string& commit_hash) {
-    const auto commit_path{vconsts::BRANCH_INFO_PATH / vglobals::active_branch /
+    const auto commit_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
                            commit_hash};
     fs::remove_all(commit_path);
 }
@@ -605,12 +605,18 @@ Result handle_rollback(const std::string& commit_hash) {
 
     for (const auto& file : dir_it) {
         if (!file.is_directory()) continue;
+        if (file.path().filename() == vconsts::STAGE_PATH_P) continue;
 
         auto fstring{file.path().filename().generic_string()};
         if (fstring.starts_with(commit_hash)) matches.push_back(file.path());
     }
 
+    if (matches.empty()) {
+        return {Status::Error, "Couldn't roll back: no such commit present."};
+    }
+
     if (matches.size() > 1) {
+        // for (const auto& match : matches) std::cout << match << std::endl;
         return {Status::Error, "Couldn't roll back: ambiguous commit hash."};
     }
 
