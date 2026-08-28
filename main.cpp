@@ -130,27 +130,38 @@ nlohmann::json get_commit_history() {
     return loaded;
 }
 
-void push_to_history(const std::string& commit_hash) {
+/* removes commit from repository, doesn't check for future symlinks. */
+void remove_commit_unsafe(const std::string& commit_hash) {
+    const auto commit_path{vconsts::BRANCH_INFO_PATH / vglobals::active_branch /
+                           commit_hash};
+    fs::remove_all(commit_path);
+}
+
+void update_history(const std::string& new_commit) {
     const auto history_path{vconsts::BRANCHES_PATH / vglobals::active_branch /
                             vconsts::COMMIT_HISTORY_PATH_P};
 
     ensure_json_list(history_path);
 
     std::ifstream in{history_path};
-    nlohmann::json loaded;
-    in >> loaded;
+    nlohmann::json commit_history;
+    in >> commit_history;
     in.close();
 
-    const auto head_it = loaded.find(get_head());
-    if (head_it != loaded.end()) {
-        // head is present, pushing, overwrite the "future"
-        loaded.erase(std::next(head_it), loaded.end());
+    auto commit_it =
+        std::find(commit_history.begin(), commit_history.end(), get_head());
+
+    if (commit_it != commit_history.end()) ++commit_it;
+
+    while (commit_it != commit_history.end()) {
+        remove_commit_unsafe(commit_it->get<std::string>());
+        commit_it = commit_history.erase(commit_it);
     }
 
-    loaded.push_back(commit_hash);
+    commit_history.push_back(new_commit);
 
     std::ofstream out{history_path, std::ios::trunc};
-    out << loaded;
+    out << commit_history;
     out.close();
 };
 
@@ -213,7 +224,7 @@ void commit_create_symlink(const fs::path& commit_path,
     fs::create_symlink(canon, isolated);
 }
 
-/* assumes valid commit path */
+/* assumes valid commit hash */
 void rollback_to_commit(const fs::path& commit_path) {
     const fs::directory_iterator dir_it{commit_path};
 
@@ -506,7 +517,7 @@ Result handle_commit(const std::string& message) {
             });
     }
 
-    push_to_history(commit_hash);
+    update_history(commit_hash);
 
     set_head(commit_hash);
 
@@ -545,7 +556,9 @@ Result handle_history() {
 
     for (const auto& commit : json) {
         // commit hash
-        result_message.append("commit ").append(commit).append("\n");
+        result_message.append("commit ").append(commit);
+        if (commit == head_hash) result_message.append(" <--- HEAD IS HERE");
+        result_message.append("\n");
 
         // commit message
         const auto message = get_commit_message(commit);
@@ -579,39 +592,32 @@ Result handle_rollback(const std::string& commit_hash) {
     }
 
     if (commit_hash.empty()) {
+        const auto head{get_head()};
         rollback_to_commit(vconsts::BRANCHES_PATH / vglobals::active_branch /
-                           commit_history.back());
+                           head);
 
-        static std::string result_message{
-            "Rolled back to most recent commit: "};
-        result_message.append(commit_history.back());
+        static std::string result_message{"Rolled back to head commit: "};
+        result_message.append(head);
         return {Status::Success, result_message};
     }
 
-    fs::path closest_commit{dir_it->path()};  // first item
-    size_t closest_match{0uz};
+    std::vector<fs::path> matches;
 
     for (const auto& file : dir_it) {
-        auto fstring{file.path().generic_string()};
-        auto mismatch = std::mismatch(fstring.begin(), fstring.end(),
-                                      commit_hash.begin(), commit_hash.end());
-        size_t gap = mismatch.first - fstring.begin();
+        if (!file.is_directory()) continue;
 
-        if (gap == closest_match) {
-            return {Status::Error,
-                    "Couldn't roll back: ambiguous commit hash."};
-        }
-
-        if (gap > closest_match) {
-            closest_match = gap;
-            closest_commit = file.path();
-        }
+        auto fstring{file.path().filename().generic_string()};
+        if (fstring.starts_with(commit_hash)) matches.push_back(file.path());
     }
 
-    rollback_to_commit(closest_commit);
+    if (matches.size() > 1) {
+        return {Status::Error, "Couldn't roll back: ambiguous commit hash."};
+    }
+
+    rollback_to_commit(matches.front());
 
     static std::string result_message{"Rolled back to commit: "};
-    result_message.append(closest_commit);
+    result_message.append(matches.front().filename());
     return {Status::Success, result_message};
 }
 
