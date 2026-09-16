@@ -26,29 +26,6 @@ int vgit::Repository::copy_branch(std::string_view src, std::string_view dst) {
     return ec.value();
 }
 
-const std::string& vgit::Repository::__get_active_branch() {
-    if (_active_branch.empty())
-        _active_branch = vgit::Environment::get_active_branch();
-    return _active_branch;
-}
-
-bool vgit::Repository::__set_active_branch(std::string_view name) {
-    if (!vgit::Environment::set_active_branch(name)) return false;
-    _active_branch = name;
-    return true;
-}
-
-const std::string& vgit::Repository::__get_head_hash() {
-    if (_head_hash.empty()) _head_hash = vgit::Environment::get_head_hash();
-    return _head_hash;
-}
-
-bool vgit::Repository::__set_head_hash(std::string_view hash) {
-    if (!vgit::Environment::set_head_hash(hash)) return false;
-    _head_hash = hash;
-    return true;
-}
-
 void vgit::Repository::rec_path(const fs::path& p, const std::string& buffer) {
     fs::directory_iterator dir_it{p};
     for (const auto& file : dir_it) {
@@ -143,6 +120,29 @@ fs::directory_iterator vgit::Repository::get_branches() {
 
 bool vgit::Repository::__is_inited() {
     return fs::is_directory(vgit::Consts::VGIT_ROOT);
+}
+
+const std::string& vgit::Repository::__get_active_branch() {
+    if (_active_branch.empty())
+        _active_branch = vgit::Environment::get_active_branch();
+    return _active_branch;
+}
+
+bool vgit::Repository::__set_active_branch(std::string_view name) {
+    if (!vgit::Environment::set_active_branch(name)) return false;
+    _active_branch = name;
+    return true;
+}
+
+const std::string& vgit::Repository::__get_head_hash() {
+    if (_head_hash.empty()) _head_hash = vgit::Environment::get_head_hash();
+    return _head_hash;
+}
+
+bool vgit::Repository::__set_head_hash(std::string_view hash) {
+    if (!vgit::Environment::set_head_hash(hash)) return false;
+    _head_hash = hash;
+    return true;
 }
 
 int vgit::Repository::init() {
