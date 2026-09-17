@@ -19,6 +19,13 @@ class Environment {
 
     static nlohmann::json get_commit_history();
 
+    [[nodiscard]] static std::optional<std::string> get_basefile_hash(
+        const fs::path& file);
+
+    [[nodiscard]] static bool create_most_recent_version(
+        const std::string& basef_hash, const fs::path& file,
+        const fs::path& destination);
+
    private:
     static nlohmann::json get_global_info();
     [[nodiscard]] static bool set_global_info(const nlohmann::json& info);

@@ -8,6 +8,7 @@
 #include <ranges>
 #include <set>
 #include <vgit/constants.hpp>
+#include <vgit/delta.hpp>
 #include <vgit/environment.hpp>
 #include <vgit/repository.hpp>
 
@@ -405,6 +406,7 @@ int vgit::Repository::commit_stage(std::string_view message) {
                           vgit::Consts::p_stage_path};
     const auto commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
                            commit_hash};
+    const auto commit_history = vgit::Environment::get_commit_history();
 
     if (fs::is_empty(stage_path)) {
         std::println("No changes staged, nothing committed.");
@@ -425,38 +427,41 @@ int vgit::Repository::commit_stage(std::string_view message) {
     const auto head_hash{__get_head_hash()};
     const auto prev_commit_path{vgit::Consts::BRANCHES_PATH /
                                 __get_active_branch() / head_hash};
-    bool symlink_error{false};
 
-    /*symlinks for previous commit's files. old_commit without new_commit */
-    if (fs::is_directory(prev_commit_path) && !head_hash.empty()) {
-        // current commit's files
-        const std::set<fs::path> fset{
-            std::from_range,
-            fs::recursive_directory_iterator{commit_path} |
-                std::views::filter(
-                    [](const auto& file) { return !fs::is_directory(file); }) |
-                std::views::transform([&](const auto& file) {
-                    return fs::relative(file.path(), commit_path);
-                })};
+    /*
+        we have files on stage, which we renamed to the commit hash
+        find the delta between these and their most recent file versions
+        get most recent file version by accumulating deltas through commits
+    */
 
-        // previous commit's files wo current ones
-        // inductively, should contain symlinks to previous commit (if exists)
+    for (const auto& file : fs::recursive_directory_iterator(commit_path)) {
+        // assuming regular files for sake of simplicity
+        if (file.is_directory()) continue;
 
-        std::ranges::for_each(
-            fs::recursive_directory_iterator{prev_commit_path} |
-                std::views::filter([&](const auto& file) {
-                    return !fs::is_directory(file) &&
-                           !fset.contains(fs::relative(file, prev_commit_path));
-                }),
-            [&](const auto& file) {
-                if (!create_commit_symlink(commit_path, file))
-                    symlink_error = true;
-            });
-    }
+        const auto relfile = fs::relative(file, commit_path);
 
-    if (symlink_error) {
-        std::println(stderr, "Encountered error while creating symlinks.");
-        return EXIT_FAILURE;
+        // what if there is no basefile?
+        const auto basefile_hash =
+            vgit::Environment::get_basefile_hash(relfile);
+        if (!basefile_hash) continue;  // this commit is now the basefile
+
+        // get most recent file version
+        // who's responsible? probably Environment
+        fs::path version_tmpfile = file;
+        fs::path final_destination = file;  // i should watch that
+        version_tmpfile += vgit::Consts::tmp_extension;
+        final_destination += vgit::Consts::delta_extension;
+        if (!vgit::Environment::create_most_recent_version(
+                *basefile_hash, relfile, version_tmpfile)) {
+            std::println(stderr,
+                         "Could not calculate deltas. Corruption suspected.");
+            return EXIT_FAILURE;
+        }
+
+        vgit::Delta delta(version_tmpfile, file);
+        delta.serialize(final_destination);
+        fs::remove(version_tmpfile);
+        fs::remove(file);  // now replaced by delta representation
     }
 
     if (!vgit::Environment::update_history(commit_hash)) {
@@ -479,8 +484,9 @@ int vgit::Repository::commit_stage(std::string_view message) {
     return EXIT_SUCCESS;
 }
 
+// must be changed to correspond with deltas
 int vgit::Repository::rollback_to_commit(std::string_view hash) {
-    const auto commit_history{vgit::Environment::get_commit_history()};
+    const auto commit_history = vgit::Environment::get_commit_history();
 
     if (commit_history.empty()) {
         std::println(stderr, "No commits to roll back to.");

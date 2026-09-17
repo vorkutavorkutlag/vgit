@@ -19,6 +19,8 @@ constexpr std::string_view hex_digits{"0123456789abcdef"};
 
 constexpr std::string_view s_active_branch{"active_branch"};
 constexpr std::string_view s_head_hash{"head_hash"};
+constexpr std::string_view delta_extension{".vdelta"};
+constexpr std::string_view tmp_extension{".tmp"};
 
 /* constant full paths */
 
