@@ -17,7 +17,7 @@ class Environment {
     static bool valid_branch_scope(const fs::path& fp);
     [[nodiscard]] static bool update_history(std::string_view new_commit_hash);
 
-    static nlohmann::json get_commit_history();
+    static const nlohmann::json& get_commit_history();
 
     [[nodiscard]] static std::optional<std::string> get_basefile_hash(
         const fs::path& file);
@@ -25,8 +25,12 @@ class Environment {
     [[nodiscard]] static bool create_most_recent_version(
         const std::string& basef_hash, const fs::path& file,
         const fs::path& destination);
+    [[nodiscard]] static bool rebuild_commit_at_cwd(
+        const std::string& commit_hash);
 
    private:
+    inline static std::optional<nlohmann::json> _commit_history;  // nullopt
+
     static nlohmann::json get_global_info();
     [[nodiscard]] static bool set_global_info(const nlohmann::json& info);
 

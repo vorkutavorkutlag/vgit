@@ -487,6 +487,7 @@ int vgit::Repository::commit_stage(std::string_view message) {
 // must be changed to correspond with deltas
 int vgit::Repository::rollback_to_commit(std::string_view hash) {
     const auto commit_history = vgit::Environment::get_commit_history();
+    std::string target_commit = __get_head_hash();
 
     if (commit_history.empty()) {
         std::println(stderr, "No commits to roll back to.");
@@ -498,33 +499,17 @@ int vgit::Repository::rollback_to_commit(std::string_view hash) {
         return EXIT_FAILURE;
     }
 
-    /* roll back to most recent commit. spamming this won't return you to
-     * initial commit. basically acts as a git reset --soft HEAD */
-    if (hash.empty()) {
-        const auto head{__get_head_hash()};
-
-        if (!copy_commit_data(vgit::Consts::BRANCHES_PATH /
-                              __get_active_branch() / head)) {
-            std::println(stderr,
-                         "Errored occurred while rolling back to commit: {}",
-                         head);
-            return EXIT_FAILURE;
-        }
-
-        std::println("Rolled back to commit: {}", head);
-        return EXIT_SUCCESS;
-    }
-
-    std::vector<fs::path> matches;
-
+    std::vector<fs::path> matches{};
     const fs::directory_iterator dir_it{vgit::Consts::BRANCHES_PATH /
                                         __get_active_branch()};
-    for (const auto& file : dir_it) {
-        if (!file.is_directory()) continue;
-        if (file.path().filename() == vgit::Consts::p_stage_path) continue;
+    if (!hash.empty()) {
+        for (const auto& file : dir_it) {
+            if (!file.is_directory()) continue;
+            if (file.path().filename() == vgit::Consts::p_stage_path) continue;
 
-        auto fstring{file.path().filename().string()};
-        if (fstring.starts_with(hash)) matches.push_back(file.path());
+            auto fstring{file.path().filename().string()};
+            if (fstring.starts_with(hash)) matches.push_back(file.path());
+        }
     }
 
     if (matches.empty()) {
@@ -537,12 +522,7 @@ int vgit::Repository::rollback_to_commit(std::string_view hash) {
         return EXIT_FAILURE;
     }
 
-    if (!copy_commit_data(matches.front())) {
-        std::println(stderr,
-                     "Errored occurred while rolling back to commit: {}",
-                     matches.front().filename().string());
-        return EXIT_FAILURE;
-    }
+    target_commit = matches.front();
 
     std::println("Rolled back to commit: {}",
                  matches.front().filename().string());

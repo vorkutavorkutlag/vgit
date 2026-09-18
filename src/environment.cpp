@@ -158,54 +158,46 @@ bool vgit::Environment::update_history(std::string_view new_commit_hash) {
                             vgit::Repository::__get_active_branch() /
                             vgit::Consts::p_commit_history_path};
 
-    if (!ensure_json_list(history_path)) return false;
-    nlohmann::json commit_history;
-
-    {
-        std::ifstream in{history_path};
-        if (!in) return false;
-        in >> commit_history;
-        if (!in) return false;
-    }
-
-    auto commit_it = std::find(commit_history.begin(), commit_history.end(),
+    auto commit_it = std::find(_commit_history->begin(), _commit_history->end(),
                                vgit::Repository::__get_head_hash());
 
-    if (commit_it != commit_history.end()) ++commit_it;
+    if (commit_it != _commit_history->end()) ++commit_it;
 
     bool errored{false};
-    while (commit_it != commit_history.end()) {
+    while (commit_it != _commit_history->end()) {
         if (!remove_commit_unsafe(commit_it->get<std::string>()))
             errored = true;
-        commit_it = commit_history.erase(commit_it);
+        commit_it = _commit_history->erase(commit_it);
     }
 
-    commit_history.push_back(new_commit_hash);
+    _commit_history->push_back(new_commit_hash);
 
     {
         std::ofstream out{history_path, std::ios::trunc};
         if (!out) return false;
-        out << commit_history;
+        out << *_commit_history;
         if (!out) return false;
     }
 
     return !errored;
 }
 
-nlohmann::json vgit::Environment::get_commit_history() {
+const nlohmann::json& vgit::Environment::get_commit_history() {
     const auto history_path{vgit::Consts::BRANCHES_PATH /
                             vgit::Repository::__get_active_branch() /
                             vgit::Consts::p_commit_history_path};
 
-    if (!ensure_json_list(history_path)) return nlohmann::json{};
-    nlohmann::json loaded;
+    if (_commit_history) return *_commit_history;
+    _commit_history.emplace();
 
+    if (!ensure_json_list(history_path))
+        throw(std::runtime_error("Problem creating empty JSON"));
     {
         std::ifstream in{history_path};
-        in >> loaded;
+        in >> *_commit_history;
     }
 
-    return loaded;
+    return *_commit_history;
 }
 
 std::optional<std::string> vgit::Environment::get_basefile_hash(
@@ -257,3 +249,5 @@ bool vgit::Environment::create_most_recent_version(
     // by the end, destination has had all the deltas applied on it
     return true;
 }
+
+bool vgit::Environment::rebuild_commit_at_cwd(const std::string& commit_hash) {}
