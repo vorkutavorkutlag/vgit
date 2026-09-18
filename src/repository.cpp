@@ -21,20 +21,18 @@ int vgit::Repository::copy_branch(std::string_view src, std::string_view dst) {
     assert(fs::is_directory(src_history));
 
     std::error_code ec;
-    fs::copy(src_history, dst_history,
-             fs::copy_options::recursive | fs::copy_options::overwrite_existing,
-             ec);
+    fs::copy(src_history, dst_history, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
     return ec.value();
 }
 
 void vgit::Repository::rec_path(const fs::path& p, const std::string& buffer) {
     fs::directory_iterator dir_it{p};
-    for (const auto& file : dir_it) {
-        std::println("{}{}", buffer, file.path().filename().string());
+    for (fs::path file : dir_it) {
+        std::println("{}{}", buffer, file.replace_extension().filename().string());
 
-        if (file.is_directory()) {
-            std::println("{}/", file.path().filename().string());
-            rec_path(file.path(), buffer + "   |");
+        if (fs::is_directory(file)) {
+            std::println("{}/", file.filename().string());
+            rec_path(file, buffer + "   |");
         }
     }
 }
@@ -66,8 +64,7 @@ fs::path vgit::Repository::isolate_commit_path(const fs::path& fp) {
     }
 }
 
-bool vgit::Repository::create_commit_symlink(const fs::path& commit_dst,
-                                             const fs::path& file) {
+bool vgit::Repository::create_commit_symlink(const fs::path& commit_dst, const fs::path& file) {
     std::error_code ec;
     const auto canon{fs::canonical(file)};
     const auto isolated{commit_dst / isolate_commit_path(canon)};
@@ -76,56 +73,27 @@ bool vgit::Repository::create_commit_symlink(const fs::path& commit_dst,
     return ec.value();
 }
 
-bool vgit::Repository::copy_commit_data(const fs::path& commit_path) {
-    bool errored{false};
-    std::error_code ec;
-
-    const fs::directory_iterator dir_it{commit_path};
-    for (const auto& file : dir_it) {
-        const auto isolated_fname =
-            fs::relative(fs::canonical(file), commit_path);
-        const auto destination_fname = vgit::Consts::CWD / isolated_fname;
-
-        fs::copy(
-            file, destination_fname,
-            fs::copy_options::recursive | fs::copy_options::overwrite_existing,
-            ec);
-
-        if (ec) errored = true;
-    }
-
-    // reset head
-    return __set_head_hash(commit_path.filename().string()) && !errored;
-}
-
 std::string vgit::Repository::get_commit_message(std::string_view hash) {
-    const auto commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
-                           hash};
+    const auto commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() / hash};
     const auto message_path{commit_path / vgit::Consts::p_commit_message_path};
     if (!fs::is_directory(commit_path)) return std::string{};
     if (!fs::is_regular_file(message_path)) return std::string{};
 
     std::ifstream t{message_path};
     if (!t) return std::string{};
-    std::string message{(std::istreambuf_iterator<char>(t)),
-                        std::istreambuf_iterator<char>()};
+    std::string message{(std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>()};
 
     return message;
 }
 
-fs::directory_iterator vgit::Repository::get_branches() {
-    return fs::directory_iterator(vgit::Consts::BRANCHES_PATH);
-}
+fs::directory_iterator vgit::Repository::get_branches() { return fs::directory_iterator(vgit::Consts::BRANCHES_PATH); }
 
 /* ------------ public implementation ------------ */
 
-bool vgit::Repository::__is_inited() {
-    return fs::is_directory(vgit::Consts::VGIT_ROOT);
-}
+bool vgit::Repository::__is_inited() { return fs::is_directory(vgit::Consts::VGIT_ROOT); }
 
 const std::string& vgit::Repository::__get_active_branch() {
-    if (_active_branch.empty())
-        _active_branch = vgit::Environment::get_active_branch();
+    if (_active_branch.empty()) _active_branch = vgit::Environment::get_active_branch();
     return _active_branch;
 }
 
@@ -189,8 +157,7 @@ int vgit::Repository::nuke() {
 int vgit::Repository::create_branch(std::string_view name) {
     fs::path proposed_branch_path{vgit::Consts::BRANCHES_PATH / name};
 
-    if (!vgit::Environment::valid_branch_scope(
-            fs::weakly_canonical(proposed_branch_path))) {
+    if (!vgit::Environment::valid_branch_scope(fs::weakly_canonical(proposed_branch_path))) {
         std::println(stderr, "Branch possesses invalid naming.");
         return EXIT_FAILURE;
     }
@@ -206,8 +173,7 @@ int vgit::Repository::create_branch(std::string_view name) {
     }
 
     // should still have perms here
-    mkdir((proposed_branch_path / vgit::Consts::p_stage_path).c_str(),
-          vgit::Consts::VGIT_PERMS);
+    mkdir((proposed_branch_path / vgit::Consts::p_stage_path).c_str(), vgit::Consts::VGIT_PERMS);
 
     std::println("Created new branch: {}", name);
 
@@ -230,8 +196,7 @@ int vgit::Repository::create_branch(std::string_view name) {
 int vgit::Repository::delete_branch(std::string_view name) {
     fs::path proposed_branch_path{vgit::Consts::BRANCHES_PATH / name};
 
-    if (!vgit::Environment::valid_branch_scope(
-            fs::weakly_canonical(proposed_branch_path))) {
+    if (!vgit::Environment::valid_branch_scope(fs::weakly_canonical(proposed_branch_path))) {
         std::println(stderr, "Branch possesses invalid naming.");
         return EXIT_FAILURE;
     }
@@ -255,8 +220,7 @@ int vgit::Repository::delete_branch(std::string_view name) {
 
 int vgit::Repository::switch_to_branch(std::string_view name) {
     fs::path proposed_branch_path{vgit::Consts::BRANCHES_PATH / name};
-    if (!vgit::Environment::valid_branch_scope(
-            fs::weakly_canonical(proposed_branch_path))) {
+    if (!vgit::Environment::valid_branch_scope(fs::weakly_canonical(proposed_branch_path))) {
         std::println(stderr, "Branch possesses invalid naming.");
         return EXIT_FAILURE;
     }
@@ -269,8 +233,7 @@ int vgit::Repository::switch_to_branch(std::string_view name) {
     return EXIT_FAILURE;
 }
 
-int vgit::Repository::add_to_stage(std::span<std::string const> files,
-                                   bool overwrite) {
+int vgit::Repository::add_to_stage(std::span<std::string const> files, bool overwrite) {
     if (files.empty()) {
         std::println("No files specified, no files added to stage.");
         return EXIT_SUCCESS;
@@ -293,28 +256,22 @@ int vgit::Repository::add_to_stage(std::span<std::string const> files,
         }
 
         const fs::path relative = fs::relative(fpath, vgit::Consts::CWD);
-        const fs::path destination = vgit::Consts::BRANCHES_PATH /
-                                     __get_active_branch() /
-                                     vgit::Consts::p_stage_path / relative;
+        const fs::path destination =
+            vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path / relative;
 
         if (fs::exists(destination) && !overwrite) {
-            std::println(
-                "File already exists on stage. Run with -f to overwrite.");
+            std::println("File already exists on stage. Run with -f to overwrite.");
             continue;
         }
 
         fs::create_directories(destination.parent_path(), ec);
 
         if (ec || !fs::is_directory(destination.parent_path())) {
-            std::println("Could not create directories for file: {}",
-                         destination.parent_path().string());
+            std::println("Could not create directories for file: {}", destination.parent_path().string());
             continue;
         }
 
-        fs::copy(
-            fpath, destination,
-            fs::copy_options::recursive | fs::copy_options::overwrite_existing,
-            ec);
+        fs::copy(fpath, destination, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
 
         if (ec) {
             std::println("Could not add file to stage.");
@@ -342,9 +299,8 @@ int vgit::Repository::display_branches() {
 
 int vgit::Repository::reset_stage(std::span<std::string const> files) {
     if (files.empty()) {
-        for (const auto& file : fs::directory_iterator{
-                 vgit::Consts::BRANCHES_PATH / __get_active_branch() /
-                 vgit::Consts::p_stage_path}) {
+        for (const auto& file :
+             fs::directory_iterator{vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path}) {
             fs::remove_all(file);
         }
 
@@ -364,16 +320,14 @@ int vgit::Repository::reset_stage(std::span<std::string const> files) {
         }
 
         if (!vgit::Environment::valid_file_scope(can)) {
-            std::println(
-                "File is out of repository scope. What are you doing here? ;]");
+            std::println("File is out of repository scope. What are you doing here? ;]");
             continue;
         }
 
         const auto rel = fs::relative(can, vgit::Consts::CWD);
 
-        const auto proposed_file = vgit::Consts::BRANCHES_PATH /
-                                   __get_active_branch() /
-                                   vgit::Consts::p_stage_path / rel;
+        const auto proposed_file =
+            vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path / rel;
 
         fs::remove_all(proposed_file, ec);
 
@@ -388,8 +342,7 @@ int vgit::Repository::reset_stage(std::span<std::string const> files) {
 }
 
 int vgit::Repository::display_stage() {
-    const auto sp{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
-                  vgit::Consts::p_stage_path};
+    const auto sp{vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path};
     if (fs::is_empty(sp)) {
         std::println("Stage is empty.");
     } else {
@@ -402,11 +355,9 @@ int vgit::Repository::display_stage() {
 int vgit::Repository::commit_stage(std::string_view message) {
     auto commit_hash = get_random_hash();
 
-    const auto stage_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
-                          vgit::Consts::p_stage_path};
-    const auto commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
-                           commit_hash};
-    const auto commit_history = vgit::Environment::get_commit_history();
+    const auto stage_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path};
+    const auto commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() / commit_hash};
+    const auto& commit_history = vgit::Environment::get_commit_history();
 
     if (fs::is_empty(stage_path)) {
         std::println("No changes staged, nothing committed.");
@@ -415,8 +366,7 @@ int vgit::Repository::commit_stage(std::string_view message) {
 
     // optional message for commit
     if (!message.empty()) {
-        const auto message_path{stage_path /
-                                vgit::Consts::p_commit_message_path};
+        const auto message_path{stage_path / vgit::Consts::p_commit_message_path};
         std::ofstream ofs(message_path);
         ofs << message << std::endl;
         ofs.close();
@@ -425,8 +375,7 @@ int vgit::Repository::commit_stage(std::string_view message) {
     fs::rename(stage_path, commit_path);
 
     const auto head_hash{__get_head_hash()};
-    const auto prev_commit_path{vgit::Consts::BRANCHES_PATH /
-                                __get_active_branch() / head_hash};
+    const auto prev_commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() / head_hash};
 
     /*
         we have files on stage, which we renamed to the commit hash
@@ -441,20 +390,17 @@ int vgit::Repository::commit_stage(std::string_view message) {
         const auto relfile = fs::relative(file, commit_path);
 
         // what if there is no basefile?
-        const auto basefile_hash =
-            vgit::Environment::get_basefile_hash(relfile);
+        const auto basefile_hash = vgit::Environment::get_basefile_hash(relfile);
         if (!basefile_hash) continue;  // this commit is now the basefile
 
         // get most recent file version
         // who's responsible? probably Environment
         fs::path version_tmpfile = file;
-        fs::path final_destination = file;  // i should watch that
+        fs::path final_destination = commit_path / relfile;  // i should watch that
         version_tmpfile += vgit::Consts::tmp_extension;
         final_destination += vgit::Consts::delta_extension;
-        if (!vgit::Environment::create_most_recent_version(
-                *basefile_hash, relfile, version_tmpfile)) {
-            std::println(stderr,
-                         "Could not calculate deltas. Corruption suspected.");
+        if (!vgit::Environment::create_most_recent_version(*basefile_hash, relfile, version_tmpfile)) {
+            std::println(stderr, "Could not calculate deltas. Corruption suspected.");
             return EXIT_FAILURE;
         }
 
@@ -484,10 +430,8 @@ int vgit::Repository::commit_stage(std::string_view message) {
     return EXIT_SUCCESS;
 }
 
-// must be changed to correspond with deltas
 int vgit::Repository::rollback_to_commit(std::string_view hash) {
-    const auto commit_history = vgit::Environment::get_commit_history();
-    std::string target_commit = __get_head_hash();
+    const auto& commit_history = vgit::Environment::get_commit_history();
 
     if (commit_history.empty()) {
         std::println(stderr, "No commits to roll back to.");
@@ -499,17 +443,25 @@ int vgit::Repository::rollback_to_commit(std::string_view hash) {
         return EXIT_FAILURE;
     }
 
-    std::vector<fs::path> matches{};
-    const fs::directory_iterator dir_it{vgit::Consts::BRANCHES_PATH /
-                                        __get_active_branch()};
-    if (!hash.empty()) {
-        for (const auto& file : dir_it) {
-            if (!file.is_directory()) continue;
-            if (file.path().filename() == vgit::Consts::p_stage_path) continue;
-
-            auto fstring{file.path().filename().string()};
-            if (fstring.starts_with(hash)) matches.push_back(file.path());
+    if (hash.empty()) {
+        const auto& head = __get_head_hash();
+        if (!vgit::Environment::rebuild_commit_at_cwd(head)) {
+            std::println("Error occurred while rebuilding commits");
+            return EXIT_FAILURE;
         }
+
+        std::println("Rolled back to commit: {}", head);
+        return EXIT_SUCCESS;
+    }
+
+    std::vector<fs::path> matches{};
+    const fs::directory_iterator dir_it{vgit::Consts::BRANCHES_PATH / __get_active_branch()};
+    for (const auto& file : dir_it) {
+        if (!file.is_directory()) continue;
+        if (file.path().filename() == vgit::Consts::p_stage_path) continue;
+
+        auto fstring{file.path().filename().string()};
+        if (fstring.starts_with(hash)) matches.push_back(file.path());
     }
 
     if (matches.empty()) {
@@ -522,25 +474,34 @@ int vgit::Repository::rollback_to_commit(std::string_view hash) {
         return EXIT_FAILURE;
     }
 
-    target_commit = matches.front();
+    const auto& match = matches.front().filename().string();
 
-    std::println("Rolled back to commit: {}",
-                 matches.front().filename().string());
+    if (!vgit::Environment::rebuild_commit_at_cwd(match)) {
+        std::println("Error occurred while rebuilding commits");
+        return EXIT_FAILURE;
+    }
+
+    if (!__set_head_hash(match)) {
+        std::println("Error occurred while setting new head hash");
+        return EXIT_FAILURE;
+    }
+
+    std::println("Rolled back to commit: {}", match);
     return EXIT_SUCCESS;
 }
 
 int vgit::Repository::display_history() {
-    const auto json = vgit::Environment::get_commit_history();
+    const auto& history = vgit::Environment::get_commit_history();
     const auto head_hash = __get_head_hash();
 
-    if (json.empty()) {
+    if (history.empty()) {
         std::println("No history on current branch.");
         return EXIT_SUCCESS;
     }
 
     std::println("History of branch: {}", __get_active_branch());
 
-    for (const auto& commit : json) {
+    for (const auto& commit : history) {
         // commit hash
         std::print("commit - {}", commit.get<std::string_view>());
         if (commit == head_hash) std::print(" <--- HEAD IS HERE");
@@ -552,8 +513,7 @@ int vgit::Repository::display_history() {
 
         // files
         std::println("Files present:");
-        rec_path(vgit::Consts::BRANCHES_PATH / __get_active_branch() / commit,
-                 "|");
+        rec_path(vgit::Consts::BRANCHES_PATH / __get_active_branch() / commit, "|");
 
         std::println("\n");
     }

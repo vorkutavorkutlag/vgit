@@ -15,18 +15,15 @@ class Environment {
 
     static bool valid_file_scope(const fs::path& fp);
     static bool valid_branch_scope(const fs::path& fp);
-    [[nodiscard]] static bool update_history(std::string_view new_commit_hash);
+    [[nodiscard]] static bool update_history(std::string_view new_head_hash);
 
     static const nlohmann::json& get_commit_history();
 
-    [[nodiscard]] static std::optional<std::string> get_basefile_hash(
-        const fs::path& file);
+    [[nodiscard]] static std::optional<std::string> get_basefile_hash(const fs::path& file);
 
-    [[nodiscard]] static bool create_most_recent_version(
-        const std::string& basef_hash, const fs::path& file,
-        const fs::path& destination);
-    [[nodiscard]] static bool rebuild_commit_at_cwd(
-        const std::string& commit_hash);
+    [[nodiscard]] static bool create_most_recent_version(const std::string& basef_hash, const fs::path& file,
+                                                         const fs::path& destination);
+    [[nodiscard]] static bool rebuild_commit_at_cwd(const std::string& commit_hash);
 
    private:
     inline static std::optional<nlohmann::json> _commit_history;  // nullopt
@@ -37,8 +34,7 @@ class Environment {
     [[nodiscard]] static bool ensure_json_list(const fs::path& fp);
     [[nodiscard]] static bool ensure_json_dict(const fs::path& fp);
 
-    [[nodiscard]] static bool remove_commit_unsafe(
-        std::string_view commit_hash);
+    [[nodiscard]] static bool remove_commit_unsafe(std::string_view commit_hash);
 
     static nlohmann::json get_branch_info();
     [[nodiscard]] static bool set_branch_info(const nlohmann::json& info);

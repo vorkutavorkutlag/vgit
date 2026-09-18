@@ -69,8 +69,7 @@ class Repository {
     static fs::path isolate_commit_path(const fs::path& fp);
 
     /* accepted files are only non-directory files. */
-    [[nodiscard]] static bool create_commit_symlink(const fs::path& commit_dst,
-                                                    const fs::path& file);
+    [[nodiscard]] static bool create_commit_symlink(const fs::path& commit_dst, const fs::path& file);
 
     [[nodiscard]] static bool copy_commit_data(const fs::path& commit_path);
 

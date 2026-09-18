@@ -35,21 +35,16 @@ int run(int argc, char* argv[]) {
     auto* diff = app.add_subcommand("diff", "Show files on stage");
 
     std::string commit_message;
-    auto* commit =
-        app.add_subcommand("commit", "Commit current changes in stage");
+    auto* commit = app.add_subcommand("commit", "Commit current changes in stage");
     commit->add_option("-m,--message", commit_message, "Commit message");
 
-    auto* history =
-        app.add_subcommand("history", "View commit history in branch");
+    auto* history = app.add_subcommand("history", "View commit history in branch");
 
     std::string rollback_hash;
-    auto* rollback =
-        app.add_subcommand("rollback", "Roll bacck to previous commit");
-    rollback->add_option("hash", rollback_hash,
-                         "First few letters of desired commit hash");
+    auto* rollback = app.add_subcommand("rollback", "Roll bacck to previous commit");
+    rollback->add_option("hash", rollback_hash, "First few letters of desired commit hash");
 
-    auto* nuke =
-        app.add_subcommand("nuke", "Delete repository in working directory");
+    auto* nuke = app.add_subcommand("nuke", "Delete repository in working directory");
 
     CLI11_PARSE(app, argc, argv);
 

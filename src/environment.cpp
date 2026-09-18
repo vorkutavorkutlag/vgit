@@ -55,17 +55,14 @@ bool vgit::Environment::ensure_json_dict(const fs::path& fp) {
 }
 
 bool vgit::Environment::remove_commit_unsafe(std::string_view commit_hash) {
-    const auto commit_path{vgit::Consts::BRANCHES_PATH /
-                           vgit::Repository::__get_active_branch() /
-                           commit_hash};
+    const auto commit_path{vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() / commit_hash};
     std::error_code ec;
     fs::remove_all(commit_path, ec);
     return !ec.value();
 }
 
 nlohmann::json vgit::Environment::get_branch_info() {
-    const auto b_info_path{vgit::Consts::BRANCHES_PATH /
-                           vgit::Repository::__get_active_branch() /
+    const auto b_info_path{vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() /
                            vgit::Consts::p_branch_info_path};
 
     if (!ensure_json_dict(b_info_path)) return nlohmann::json{};
@@ -82,8 +79,7 @@ nlohmann::json vgit::Environment::get_branch_info() {
 }
 
 bool vgit::Environment::set_branch_info(const nlohmann::json& info) {
-    const auto b_info_path{vgit::Consts::BRANCHES_PATH /
-                           vgit::Repository::__get_active_branch() /
+    const auto b_info_path{vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() /
                            vgit::Consts::p_branch_info_path};
     std::ofstream out{b_info_path, std::ios::trunc};
     if (!out) return false;
@@ -123,8 +119,7 @@ bool vgit::Environment::set_head_hash(std::string_view hash) {
 
 bool vgit::Environment::valid_file_scope(const fs::path& fp) {
     auto repo = fs::canonical(vgit::Consts::CWD);
-    auto mismatch =
-        std::mismatch(repo.begin(), repo.end(), fp.begin(), fp.end());
+    auto mismatch = std::mismatch(repo.begin(), repo.end(), fp.begin(), fp.end());
 
     // is within CWD
     if (mismatch.first != repo.end() || fp == repo) return false;
@@ -142,35 +137,30 @@ bool vgit::Environment::valid_file_scope(const fs::path& fp) {
 bool vgit::Environment::valid_branch_scope(const fs::path& fp) {
     auto repo = fs::canonical(vgit::Consts::CWD);
     auto mismatch =
-        std::mismatch(vgit::Consts::BRANCHES_PATH.begin(),
-                      vgit::Consts::BRANCHES_PATH.end(), fp.begin(), fp.end());
+        std::mismatch(vgit::Consts::BRANCHES_PATH.begin(), vgit::Consts::BRANCHES_PATH.end(), fp.begin(), fp.end());
 
     // is within branches path
-    if (mismatch.first != vgit::Consts::BRANCHES_PATH.end() || fp == repo)
-        return false;
+    if (mismatch.first != vgit::Consts::BRANCHES_PATH.end() || fp == repo) return false;
 
     // is outside any given branch
     return fp.parent_path() == vgit::Consts::BRANCHES_PATH;
 }
 
-bool vgit::Environment::update_history(std::string_view new_commit_hash) {
-    const auto history_path{vgit::Consts::BRANCHES_PATH /
-                            vgit::Repository::__get_active_branch() /
+bool vgit::Environment::update_history(std::string_view new_head_hash) {
+    const auto history_path{vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() /
                             vgit::Consts::p_commit_history_path};
 
-    auto commit_it = std::find(_commit_history->begin(), _commit_history->end(),
-                               vgit::Repository::__get_head_hash());
+    auto commit_it = std::find(_commit_history->begin(), _commit_history->end(), vgit::Repository::__get_head_hash());
 
     if (commit_it != _commit_history->end()) ++commit_it;
 
     bool errored{false};
     while (commit_it != _commit_history->end()) {
-        if (!remove_commit_unsafe(commit_it->get<std::string>()))
-            errored = true;
+        if (!remove_commit_unsafe(commit_it->get<std::string>())) errored = true;
         commit_it = _commit_history->erase(commit_it);
     }
 
-    _commit_history->push_back(new_commit_hash);
+    _commit_history->push_back(new_head_hash);
 
     {
         std::ofstream out{history_path, std::ios::trunc};
@@ -183,15 +173,13 @@ bool vgit::Environment::update_history(std::string_view new_commit_hash) {
 }
 
 const nlohmann::json& vgit::Environment::get_commit_history() {
-    const auto history_path{vgit::Consts::BRANCHES_PATH /
-                            vgit::Repository::__get_active_branch() /
+    const auto history_path{vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() /
                             vgit::Consts::p_commit_history_path};
 
     if (_commit_history) return *_commit_history;
     _commit_history.emplace();
 
-    if (!ensure_json_list(history_path))
-        throw(std::runtime_error("Problem creating empty JSON"));
+    if (!ensure_json_list(history_path)) throw(std::runtime_error("Problem creating empty JSON"));
     {
         std::ifstream in{history_path};
         in >> *_commit_history;
@@ -200,13 +188,9 @@ const nlohmann::json& vgit::Environment::get_commit_history() {
     return *_commit_history;
 }
 
-std::optional<std::string> vgit::Environment::get_basefile_hash(
-    const fs::path& target) {
-    const auto hist = get_commit_history();
-    for (const auto& commit : hist) {
-        const auto commit_path = vgit::Consts::BRANCHES_PATH /
-                                 vgit::Repository::__get_active_branch() /
-                                 commit;
+std::optional<std::string> vgit::Environment::get_basefile_hash(const fs::path& target) {
+    for (const auto& commit : *_commit_history) {
+        const auto commit_path = vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() / commit;
         for (const auto& file : fs::recursive_directory_iterator(commit_path)) {
             if (file.is_directory()) continue;
             if (fs::relative(file, commit_path) == target) return commit;
@@ -215,26 +199,19 @@ std::optional<std::string> vgit::Environment::get_basefile_hash(
     return std::nullopt;
 }
 
-bool vgit::Environment::create_most_recent_version(
-    const std::string& basef_hash, const fs::path& file,
-    const fs::path& destination) {
-    const auto hist = get_commit_history();
-    auto hash_it = std::find(hist.begin(), hist.end(), basef_hash);
+bool vgit::Environment::create_most_recent_version(const std::string& basef_hash, const fs::path& file,
+                                                   const fs::path& destination) {
+    auto hash_it = std::find(_commit_history->begin(), _commit_history->end(), basef_hash);
 
-    if (!fs::create_directories(destination.parent_path()) &&
-        !fs::is_directory(destination.parent_path()))
+    if (!fs::create_directories(destination.parent_path()) && !fs::is_directory(destination.parent_path()))
         return false;
 
-    const auto base_commit = vgit::Consts::BRANCHES_PATH /
-                             vgit::Repository::__get_active_branch() /
-                             basef_hash;
+    const auto base_commit = vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() / basef_hash;
 
     if (!fs::copy_file(base_commit / file, destination)) return false;
 
-    while (++hash_it != hist.end()) {
-        const auto cur_commit = vgit::Consts::BRANCHES_PATH /
-                                vgit::Repository::__get_active_branch() /
-                                *hash_it;
+    while (++hash_it != _commit_history->end()) {
+        const auto cur_commit = vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() / *hash_it;
         auto target_f = file;
         target_f += vgit::Consts::delta_extension;
         const auto target = cur_commit / (target_f);
@@ -250,4 +227,29 @@ bool vgit::Environment::create_most_recent_version(
     return true;
 }
 
-bool vgit::Environment::rebuild_commit_at_cwd(const std::string& commit_hash) {}
+// should add false returns too
+bool vgit::Environment::rebuild_commit_at_cwd(const std::string& commit_hash) {
+    for (const auto& hash : *_commit_history) {
+        const auto cur_commit = vgit::Consts::BRANCHES_PATH / vgit::Repository::__get_active_branch() / hash;
+
+        for (const auto& commit_file : fs::recursive_directory_iterator(cur_commit)) {
+            if (commit_file.is_directory()) continue;
+
+            const auto relpath = fs::relative(commit_file, cur_commit);
+            auto path_in_cwd = vgit::Consts::CWD / relpath;
+            if (commit_file.path().string().ends_with(vgit::Consts::delta_extension)) {
+                // delta file
+                vgit::Delta delta(commit_file);
+                delta.apply(path_in_cwd.replace_extension());  // removes extension;
+                // this should work on multiple extensions. e.g. something.tar.gz.vdelta
+            } else {
+                // original file
+                fs::copy_file(commit_file, path_in_cwd, fs::copy_options::overwrite_existing);
+            }
+        }
+
+        if (hash == commit_hash) break;
+    }
+
+    return true;
+}
