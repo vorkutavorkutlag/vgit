@@ -21,13 +21,15 @@ int vgit::Repository::copy_branch(std::string_view src, std::string_view dst) {
     assert(fs::is_directory(src_history));
 
     std::error_code ec;
-    fs::copy(src_history, dst_history, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    fs::copy(src_history, dst_history,
+             fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
     return ec.value();
 }
 
 void vgit::Repository::rec_path(const fs::path& p, const std::string& buffer) {
     fs::directory_iterator dir_it{p};
     for (fs::path file : dir_it) {
+        if (file.filename().string().starts_with(".")) continue;
         std::println("{}{}", buffer, file.replace_extension().filename().string());
 
         if (fs::is_directory(file)) {
@@ -86,7 +88,9 @@ std::string vgit::Repository::get_commit_message(std::string_view hash) {
     return message;
 }
 
-fs::directory_iterator vgit::Repository::get_branches() { return fs::directory_iterator(vgit::Consts::BRANCHES_PATH); }
+fs::directory_iterator vgit::Repository::get_branches() {
+    return fs::directory_iterator(vgit::Consts::BRANCHES_PATH);
+}
 
 /* ------------ public implementation ------------ */
 
@@ -256,8 +260,8 @@ int vgit::Repository::add_to_stage(std::span<std::string const> files, bool over
         }
 
         const fs::path relative = fs::relative(fpath, vgit::Consts::CWD);
-        const fs::path destination =
-            vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path / relative;
+        const fs::path destination = vgit::Consts::BRANCHES_PATH / __get_active_branch() /
+                                     vgit::Consts::p_stage_path / relative;
 
         if (fs::exists(destination) && !overwrite) {
             std::println("File already exists on stage. Run with -f to overwrite.");
@@ -267,11 +271,13 @@ int vgit::Repository::add_to_stage(std::span<std::string const> files, bool over
         fs::create_directories(destination.parent_path(), ec);
 
         if (ec || !fs::is_directory(destination.parent_path())) {
-            std::println("Could not create directories for file: {}", destination.parent_path().string());
+            std::println("Could not create directories for file: {}",
+                         destination.parent_path().string());
             continue;
         }
 
-        fs::copy(fpath, destination, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+        fs::copy(fpath, destination,
+                 fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
 
         if (ec) {
             std::println("Could not add file to stage.");
@@ -300,7 +306,8 @@ int vgit::Repository::display_branches() {
 int vgit::Repository::reset_stage(std::span<std::string const> files) {
     if (files.empty()) {
         for (const auto& file :
-             fs::directory_iterator{vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path}) {
+             fs::directory_iterator{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
+                                    vgit::Consts::p_stage_path}) {
             fs::remove_all(file);
         }
 
@@ -355,7 +362,8 @@ int vgit::Repository::display_stage() {
 int vgit::Repository::commit_stage(std::string_view message) {
     auto commit_hash = get_random_hash();
 
-    const auto stage_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() / vgit::Consts::p_stage_path};
+    const auto stage_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() /
+                          vgit::Consts::p_stage_path};
     const auto commit_path{vgit::Consts::BRANCHES_PATH / __get_active_branch() / commit_hash};
     const auto& commit_history = vgit::Environment::get_commit_history();
 
@@ -368,7 +376,7 @@ int vgit::Repository::commit_stage(std::string_view message) {
     if (!message.empty()) {
         const auto message_path{stage_path / vgit::Consts::p_commit_message_path};
         std::ofstream ofs(message_path);
-        ofs << message << std::endl;
+        ofs << message << std::flush;
         ofs.close();
     }
 
@@ -399,7 +407,8 @@ int vgit::Repository::commit_stage(std::string_view message) {
         fs::path final_destination = commit_path / relfile;  // i should watch that
         version_tmpfile += vgit::Consts::tmp_extension;
         final_destination += vgit::Consts::delta_extension;
-        if (!vgit::Environment::create_most_recent_version(*basefile_hash, relfile, version_tmpfile)) {
+        if (!vgit::Environment::create_most_recent_version(*basefile_hash, relfile,
+                                                           version_tmpfile)) {
             std::println(stderr, "Could not calculate deltas. Corruption suspected.");
             return EXIT_FAILURE;
         }

@@ -46,6 +46,11 @@ int run(int argc, char* argv[]) {
 
     auto* nuke = app.add_subcommand("nuke", "Delete repository in working directory");
 
+    if (argc == 1) {
+        std::println("{}", app.help());
+        return EXIT_SUCCESS;
+    }
+
     CLI11_PARSE(app, argc, argv);
 
     if (*init) return vgit::Repository::init();
@@ -82,7 +87,6 @@ int run(int argc, char* argv[]) {
 
     if (*rollback) return vgit::Repository::rollback_to_commit(rollback_hash);
 
-    std::println("{}", app.help());
     return EXIT_SUCCESS;
 }
 }  // namespace vgit::cli
