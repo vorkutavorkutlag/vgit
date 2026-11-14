@@ -41,7 +41,7 @@ int run(int argc, char* argv[]) {
     auto* history = app.add_subcommand("history", "View commit history in branch");
 
     std::string rollback_hash;
-    auto* rollback = app.add_subcommand("rollback", "Roll bacck to previous commit");
+    auto* rollback = app.add_subcommand("rollback", "Roll back to previous commit");
     rollback->add_option("hash", rollback_hash, "First few letters of desired commit hash");
 
     auto* nuke = app.add_subcommand("nuke", "Delete repository in working directory");

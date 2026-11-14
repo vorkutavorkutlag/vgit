@@ -28,13 +28,21 @@ int vgit::Repository::copy_branch(std::string_view src, std::string_view dst) {
 
 void vgit::Repository::rec_path(const fs::path& p, const std::string& buffer) {
     fs::directory_iterator dir_it{p};
-    for (fs::path file : dir_it) {
-        if (file.filename().string().starts_with(".")) continue;
-        std::println("{}{}", buffer, file.replace_extension().filename().string());
+    for (const auto& entry : dir_it) {
+        const std::string filename = entry.path().filename().string();
+        std::string_view name_view = filename;
 
-        if (fs::is_directory(file)) {
-            std::println("{}/", file.filename().string());
-            rec_path(file, buffer + "   |");
+        if (name_view.starts_with('.')) continue;
+
+        if (name_view.ends_with(Consts::delta_extension)) {
+            name_view.remove_suffix(Consts::delta_extension.size());
+        }
+
+        std::println("{}{}", buffer, name_view);
+
+        if (entry.is_directory()) {
+            std::println("{}/", name_view);
+            rec_path(entry.path(), buffer + "   |");
         }
     }
 }
