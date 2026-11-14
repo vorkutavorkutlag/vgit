@@ -298,6 +298,50 @@ int vgit::Repository::add_to_stage(std::span<std::string const> files, bool over
     return EXIT_SUCCESS;
 }
 
+// REPLACED WITH reset_stage
+
+// int vgit::Repository::remove_from_stage(std::span<std::string const> files) {
+//     if (files.empty()) {
+//         std::println("No files specified, no files removed from stage.");
+//         return EXIT_SUCCESS;
+//     }
+
+//     for (const auto& file : files) {
+//         std::error_code ec;
+//         fs::path fpath{fs::canonical(file, ec)};
+
+//         std::print("{}: ", file);
+
+//         if (ec) {
+//             std::println("File does not exist.");
+//             continue;
+//         }
+
+//         if (!vgit::Environment::valid_file_scope(fpath)) {
+//             std::println("File is out of repository scope.");
+//             continue;
+//         }
+
+//         const fs::path relative = fs::relative(fpath, vgit::Consts::CWD);
+//         const fs::path destination = vgit::Consts::BRANCHES_PATH / __get_active_branch() /
+//                                      vgit::Consts::p_stage_path / relative;
+
+//         if (!fs::exists(destination)) {
+//             std::println("File does not exist on stage. Run vgit diff to see stage.");
+//             continue;
+//         }
+
+//         if (!fs::remove(destination)) {
+//             std::println("Error occurred while removing file from stage.");
+//             continue;
+//         }
+
+//         std::println("File successfully removed from stage.");
+//     }
+
+//     return EXIT_SUCCESS;
+// }
+
 int vgit::Repository::display_branches() {
     const auto active_branch{__get_active_branch()};
     if (active_branch.empty()) return EXIT_SUCCESS;

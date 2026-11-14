@@ -29,7 +29,7 @@ int run(int argc, char* argv[]) {
     add->add_flag("-f,-F,--force", add_overwrite, "Overwrite files on stage");
 
     std::vector<std::string> reset_files;
-    auto* reset = app.add_subcommand("reset", "Reset files from stage");
+    auto* reset = app.add_subcommand("reset", "Reset/Remove files from stage");
     reset->add_option("files", reset_files, "Files to remove");
 
     auto* diff = app.add_subcommand("diff", "Show files on stage");

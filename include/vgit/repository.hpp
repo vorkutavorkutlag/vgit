@@ -27,6 +27,8 @@ class Repository {
     /* Adds suggested files to stage, overwrites if necessary*/
     static int add_to_stage(std::span<std::string const>, bool overwrite);
 
+    // static int remove_from_stage(std::span<std::string const>);
+
     /* Removes given files from stage, wipes clean if no files specified */
     static int reset_stage(std::span<std::string const> files);
 
@@ -69,7 +71,8 @@ class Repository {
     static fs::path isolate_commit_path(const fs::path& fp);
 
     /* accepted files are only non-directory files. */
-    [[nodiscard]] static bool create_commit_symlink(const fs::path& commit_dst, const fs::path& file);
+    [[nodiscard]] static bool create_commit_symlink(const fs::path& commit_dst,
+                                                    const fs::path& file);
 
     [[nodiscard]] static bool copy_commit_data(const fs::path& commit_path);
 
